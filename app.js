@@ -1,5 +1,6 @@
 /**
  * App — Wires HandTracker + Game together, manages UI states.
+ * Supports dual-hand tracking with independent ammo/reload per hand.
  */
 (function () {
     const startScreen = document.getElementById('start-screen');
@@ -10,8 +11,6 @@
     const scoreValue = document.getElementById('score-value');
     const timerValue = document.getElementById('timer-value');
     const comboValue = document.getElementById('combo-value');
-    const ammoBar = document.getElementById('ammo-bar');
-    const reloadIndicator = document.getElementById('reload-indicator');
     const gestureStatus = document.getElementById('gesture-status');
     const gestureText = document.getElementById('gesture-text');
     const finalScore = document.getElementById('final-score');
@@ -22,9 +21,26 @@
     const videoEl = document.getElementById('camera-feed');
     const canvasEl = document.getElementById('game-canvas');
 
+    // Per-hand UI elements
+    const ammoBarEls = {
+        Left: document.getElementById('ammo-bar-Left'),
+        Right: document.getElementById('ammo-bar-Right'),
+    };
+    const reloadEls = {
+        Left: document.getElementById('reload-indicator-Left'),
+        Right: document.getElementById('reload-indicator-Right'),
+    };
+    const gestureDots = {
+        Left: document.getElementById('gesture-dot-Left'),
+        Right: document.getElementById('gesture-dot-Right'),
+    };
+
     let tracker = null;
     let game = null;
-    let reloadAnimId = null;
+    const reloadAnimIds = { Left: null, Right: null };
+
+    // Track per-hand gesture state for status text
+    const gestureState = { Left: false, Right: false };
 
     // ===== Start button =====
     startBtn.addEventListener('click', async () => {
@@ -40,7 +56,8 @@
             startScreen.classList.add('hidden');
             hud.classList.remove('hidden');
             game.start();
-            updateAmmoUI(game.ammo, game.maxAmmo);
+            updateAmmoUI('Left', game.maxAmmo, game.maxAmmo);
+            updateAmmoUI('Right', game.maxAmmo, game.maxAmmo);
         } catch (err) {
             console.error('Failed to start:', err);
             startBtn.textContent = 'CAMERA ERROR — TRY AGAIN';
@@ -53,25 +70,34 @@
         gameoverScreen.classList.add('hidden');
         hud.classList.remove('hidden');
         game.start();
-        updateAmmoUI(game.ammo, game.maxAmmo);
+        updateAmmoUI('Left', game.maxAmmo, game.maxAmmo);
+        updateAmmoUI('Right', game.maxAmmo, game.maxAmmo);
         scoreValue.textContent = '0';
         timerValue.textContent = '60';
         comboValue.textContent = 'x1';
+        gestureState.Left = false;
+        gestureState.Right = false;
+        updateGestureStatus();
     });
 
     // ===== Wire callbacks =====
     function wireCallbacks() {
-        tracker.onAimUpdate = (x, y) => game.updateAim(x, y);
-        tracker.onShoot = () => game.shoot();
-        tracker.onGestureChange = (isPistol) => {
-            if (isPistol) {
-                gestureStatus.classList.add('detected');
-                gestureText.textContent = '🔫 Pistol detected — AIM & SHOOT!';
-            } else {
-                gestureStatus.classList.remove('detected');
-                gestureText.textContent = 'Show pistol gesture...';
-                game.hideCrosshair();
+        tracker.onAimUpdate = (handId, x, y) => game.updateAim(handId, x, y);
+        tracker.onShoot = (handId) => game.shoot(handId);
+        tracker.onGestureChange = (handId, isPistol) => {
+            gestureState[handId] = isPistol;
+
+            // Update per-hand dot
+            const dot = gestureDots[handId];
+            if (dot) {
+                dot.classList.toggle('detected', isPistol);
             }
+
+            if (!isPistol) {
+                game.hideCrosshair(handId);
+            }
+
+            updateGestureStatus();
         };
 
         game.onScoreUpdate = (s) => {
@@ -90,22 +116,26 @@
                 setTimeout(() => comboValue.classList.remove('combo-active'), 300);
             }
         };
-        game.onAmmoUpdate = (current, max) => updateAmmoUI(current, max);
-        game.onReloadStart = (duration) => {
-            reloadIndicator.classList.remove('hidden');
-            const bar = reloadIndicator.querySelector('.reload-progress');
+        game.onAmmoUpdate = (handId, current, max) => updateAmmoUI(handId, current, max);
+        game.onReloadStart = (handId, duration) => {
+            const indicator = reloadEls[handId];
+            if (!indicator) return;
+            indicator.classList.remove('hidden');
+            const bar = indicator.querySelector('.reload-progress');
             const startTime = Date.now();
             function animReload() {
                 const elapsed = Date.now() - startTime;
                 const pct = Math.min((elapsed / duration) * 100, 100);
                 bar.style.width = pct + '%';
-                if (pct < 100) reloadAnimId = requestAnimationFrame(animReload);
+                if (pct < 100) reloadAnimIds[handId] = requestAnimationFrame(animReload);
             }
             animReload();
         };
-        game.onReloadEnd = () => {
-            reloadIndicator.classList.add('hidden');
-            if (reloadAnimId) cancelAnimationFrame(reloadAnimId);
+        game.onReloadEnd = (handId) => {
+            const indicator = reloadEls[handId];
+            if (!indicator) return;
+            indicator.classList.add('hidden');
+            if (reloadAnimIds[handId]) cancelAnimationFrame(reloadAnimIds[handId]);
         };
         game.onGameOver = (stats) => {
             hud.classList.add('hidden');
@@ -118,11 +148,31 @@
         };
     }
 
-    function updateAmmoUI(current, max) {
-        const bullets = ammoBar.querySelectorAll('.ammo-bullet');
+    function updateAmmoUI(handId, current, max) {
+        const bar = ammoBarEls[handId];
+        if (!bar) return;
+        const bullets = bar.querySelectorAll('.ammo-bullet');
         bullets.forEach((b, i) => {
             b.classList.toggle('active', i < current);
         });
+    }
+
+    function updateGestureStatus() {
+        const leftOn = gestureState.Left;
+        const rightOn = gestureState.Right;
+
+        if (leftOn && rightOn) {
+            gestureStatus.classList.add('detected');
+            gestureText.textContent = 'Both hands detected — DUAL WIELD!';
+        } else if (leftOn || rightOn) {
+            gestureStatus.classList.add('detected');
+            // MediaPipe "Left" = user's right hand (mirrored)
+            const which = leftOn ? 'Right hand' : 'Left hand';
+            gestureText.textContent = `${which} detected — AIM & SHOOT!`;
+        } else {
+            gestureStatus.classList.remove('detected');
+            gestureText.textContent = 'Show pistol gesture...';
+        }
     }
 
     // ===== Keyboard shortcuts =====
@@ -135,9 +185,15 @@
         if (!game || !game.isRunning) return;
         if (e.code === 'Space') {
             e.preventDefault();
-            game.shoot();
+            // Space shoots both weapons
+            game.shoot('Left');
+            game.shoot('Right');
         }
-        if (e.code === 'KeyR') game._startReload();
+        if (e.code === 'KeyR') {
+            // R reloads both weapons
+            game._startReload('Left');
+            game._startReload('Right');
+        }
     });
 
     // ===== Calibration sliders =====
@@ -158,11 +214,10 @@
     // ===== Mouse fallback for testing (move = aim, click = shoot) =====
     canvasEl.addEventListener('mousemove', (e) => {
         if (!game || !game.isRunning) return;
-        game.updateAim(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
+        game.updateAim('Right', e.clientX / window.innerWidth, e.clientY / window.innerHeight);
     });
     canvasEl.addEventListener('click', (e) => {
         if (!game || !game.isRunning) return;
-        game.shoot();
+        game.shoot('Right');
     });
 })();
-

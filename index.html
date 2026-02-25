@@ -65,9 +65,10 @@
             </div>
         </div>
         <div class="hud-bottom">
-            <div class="hud-ammo">
-                <span class="hud-label">AMMO</span>
-                <div id="ammo-bar" class="ammo-bar">
+            <!-- User's left hand (MediaPipe "Right") — positioned on left side -->
+            <div class="hud-ammo-side hud-ammo-left">
+                <span class="hud-label">LEFT HAND</span>
+                <div id="ammo-bar-Right" class="ammo-bar">
                     <div class="ammo-bullet active"></div>
                     <div class="ammo-bullet active"></div>
                     <div class="ammo-bullet active"></div>
@@ -75,18 +76,33 @@
                     <div class="ammo-bullet active"></div>
                     <div class="ammo-bullet active"></div>
                 </div>
+                <div id="reload-indicator-Right" class="reload-indicator hidden">
+                    <span>RELOADING...</span>
+                    <div class="reload-bar"><div class="reload-progress"></div></div>
+                </div>
             </div>
-            <div id="reload-indicator" class="reload-indicator hidden">
-                <span>RELOADING...</span>
-                <div class="reload-bar">
-                    <div class="reload-progress"></div>
+            <!-- User's right hand (MediaPipe "Left") — positioned on right side -->
+            <div class="hud-ammo-side hud-ammo-right">
+                <span class="hud-label">RIGHT HAND</span>
+                <div id="ammo-bar-Left" class="ammo-bar">
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                </div>
+                <div id="reload-indicator-Right" class="reload-indicator hidden">
+                    <span>RELOADING...</span>
+                    <div class="reload-bar"><div class="reload-progress"></div></div>
                 </div>
             </div>
         </div>
         <div class="hud-hint">Press <kbd>C</kbd> to open calibration</div>
         <div id="gesture-status" class="gesture-status">
-            <span class="gesture-dot"></span>
+            <span id="gesture-dot-Left" class="gesture-dot"></span>
             <span id="gesture-text">Show pistol gesture...</span>
+            <span id="gesture-dot-Right" class="gesture-dot"></span>
         </div>
 
         <!-- Calibration Panel (toggle with C key) -->

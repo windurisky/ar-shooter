@@ -1,5 +1,6 @@
 /**
  * Game Engine — Targets, scoring, particles, crosshair, game loop.
+ * Supports dual-hand weapons with independent aim, ammo, and reload per hand.
  */
 class Game {
     constructor(canvas) {
@@ -10,10 +11,14 @@ class Game {
         this.score = 0; this.combo = 0; this.maxCombo = 0;
         this.totalShots = 0; this.totalHits = 0;
         this.timeLeft = 60; this.timerInterval = null;
-        this.maxAmmo = 6; this.ammo = this.maxAmmo;
-        this.isReloading = false; this.reloadTime = 1500;
-        this.crosshairX = this.width / 2; this.crosshairY = this.height / 2;
-        this.showCrosshair = false;
+        this.maxAmmo = 6; this.reloadTime = 1500;
+
+        // Dual weapon system — keyed by hand label ("Left"/"Right")
+        this.weapons = {
+            Left: this._createWeapon(),
+            Right: this._createWeapon(),
+        };
+
         this.targets = []; this.maxTargets = 4;
         this.targetMinSpawnMs = 800; this.targetMaxSpawnMs = 2000;
         this.particles = []; this.muzzleFlashAlpha = 0;
@@ -25,13 +30,39 @@ class Game {
         this._handleResize = this.resize.bind(this);
         window.addEventListener('resize', this._handleResize);
     }
+
+    _createWeapon() {
+        return {
+            crosshairX: this.width / 2,
+            crosshairY: this.height / 2,
+            showCrosshair: false,
+            ammo: this.maxAmmo,
+            isReloading: false,
+            reloadTimer: null,
+        };
+    }
+
+    // Crosshair colors per hand (MediaPipe "Left" = user's right hand due to mirror)
+    static CROSSHAIR_COLORS = {
+        Left: { main: '#ff00e5', glow: 'rgba(255,0,229,', shadow: '#ff00e5' },   // magenta — user's right
+        Right: { main: '#00f0ff', glow: 'rgba(0,240,255,', shadow: '#00f0ff' },   // cyan — user's left
+    };
+
     resize() {
         this.width = window.innerWidth; this.height = window.innerHeight;
         this.canvas.width = this.width; this.canvas.height = this.height;
     }
     start() {
         this.score = 0; this.combo = 0; this.maxCombo = 0; this.totalShots = 0; this.totalHits = 0;
-        this.timeLeft = 60; this.ammo = this.maxAmmo; this.isReloading = false;
+        this.timeLeft = 60;
+        for (const id of Object.keys(this.weapons)) {
+            const w = this.weapons[id];
+            w.ammo = this.maxAmmo;
+            w.isReloading = false;
+            w.showCrosshair = false;
+            if (w.reloadTimer) clearTimeout(w.reloadTimer);
+            w.reloadTimer = null;
+        }
         this.targets = []; this.particles = []; this.isRunning = true;
         this.timerInterval = setInterval(() => {
             this.timeLeft--;
@@ -46,27 +77,37 @@ class Game {
         clearInterval(this.timerInterval);
         if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
         if (this._targetTimeout) clearTimeout(this._targetTimeout);
+        for (const w of Object.values(this.weapons)) {
+            if (w.reloadTimer) clearTimeout(w.reloadTimer);
+        }
         if (this.onGameOver) this.onGameOver({
             score: this.score, hits: this.totalHits, shots: this.totalShots,
             accuracy: this.totalShots > 0 ? Math.round((this.totalHits / this.totalShots) * 100) : 0,
             maxCombo: this.maxCombo
         });
     }
-    updateAim(normX, normY) {
-        this.crosshairX = normX * this.width;
-        this.crosshairY = normY * this.height;
-        this.showCrosshair = true;
+    updateAim(handId, normX, normY) {
+        const w = this.weapons[handId];
+        if (!w) return;
+        w.crosshairX = normX * this.width;
+        w.crosshairY = normY * this.height;
+        w.showCrosshair = true;
     }
-    hideCrosshair() { this.showCrosshair = false; }
-    shoot() {
-        if (!this.isRunning || this.isReloading) return;
-        if (this.ammo <= 0) { this._startReload(); return; }
-        this.ammo--; this.totalShots++; this.muzzleFlashAlpha = 1.0;
-        if (this.onAmmoUpdate) this.onAmmoUpdate(this.ammo, this.maxAmmo);
+    hideCrosshair(handId) {
+        const w = this.weapons[handId];
+        if (w) w.showCrosshair = false;
+    }
+    shoot(handId) {
+        if (!this.isRunning) return;
+        const w = this.weapons[handId];
+        if (!w || w.isReloading) return;
+        if (w.ammo <= 0) { this._startReload(handId); return; }
+        w.ammo--; this.totalShots++; this.muzzleFlashAlpha = 1.0;
+        if (this.onAmmoUpdate) this.onAmmoUpdate(handId, w.ammo, this.maxAmmo);
         let hit = false;
         for (let i = this.targets.length - 1; i >= 0; i--) {
             const t = this.targets[i];
-            const dist = Math.sqrt((this.crosshairX - t.x) ** 2 + (this.crosshairY - t.y) ** 2);
+            const dist = Math.sqrt((w.crosshairX - t.x) ** 2 + (w.crosshairY - t.y) ** 2);
             if (dist < t.radius + 15) {
                 hit = true; this.totalHits++; this.combo++;
                 if (this.combo > this.maxCombo) this.maxCombo = this.combo;
@@ -83,9 +124,9 @@ class Game {
         if (!hit) {
             this.combo = 0;
             if (this.onComboUpdate) this.onComboUpdate(this.combo);
-            this._showHitMarker(this.crosshairX, this.crosshairY - 20, 'MISS', true);
+            this._showHitMarker(w.crosshairX, w.crosshairY - 20, 'MISS', true);
         }
-        if (this.ammo <= 0) setTimeout(() => this._startReload(), 300);
+        if (w.ammo <= 0) setTimeout(() => this._startReload(handId), 300);
     }
     _calcPoints(t, dist) {
         let base = 100 + Math.floor((1 - dist / (t.radius + 15)) * 50);
@@ -93,14 +134,15 @@ class Game {
         if (t.radius < 25) base += 50;
         return Math.floor(base * mult);
     }
-    _startReload() {
-        if (this.isReloading) return;
-        this.isReloading = true;
-        if (this.onReloadStart) this.onReloadStart(this.reloadTime);
-        setTimeout(() => {
-            this.ammo = this.maxAmmo; this.isReloading = false;
-            if (this.onAmmoUpdate) this.onAmmoUpdate(this.ammo, this.maxAmmo);
-            if (this.onReloadEnd) this.onReloadEnd();
+    _startReload(handId) {
+        const w = this.weapons[handId];
+        if (!w || w.isReloading) return;
+        w.isReloading = true;
+        if (this.onReloadStart) this.onReloadStart(handId, this.reloadTime);
+        w.reloadTimer = setTimeout(() => {
+            w.ammo = this.maxAmmo; w.isReloading = false; w.reloadTimer = null;
+            if (this.onAmmoUpdate) this.onAmmoUpdate(handId, w.ammo, this.maxAmmo);
+            if (this.onReloadEnd) this.onReloadEnd(handId);
         }, this.reloadTime);
     }
     _scheduleNextTarget() {
@@ -157,7 +199,10 @@ class Game {
         this.ctx.clearRect(0, 0, this.width, this.height);
         this._drawBackground(); this._updateTargets(); this._drawTargets();
         this._updateParticles(); this._drawParticles();
-        if (this.showCrosshair) this._drawCrosshair();
+        // Draw crosshairs for all active weapons
+        for (const [handId, w] of Object.entries(this.weapons)) {
+            if (w.showCrosshair) this._drawCrosshair(handId, w);
+        }
         if (this.muzzleFlashAlpha > 0) { this._drawMuzzleFlash(); this.muzzleFlashAlpha -= 0.08; }
         this._drawScanLines();
         this._animFrameId = requestAnimationFrame(this._gameLoop);
@@ -174,12 +219,10 @@ class Game {
         }
     }
     _drawBackground() {
-        // Dark gradient base
         const bg = this.ctx.createLinearGradient(0, 0, 0, this.height);
         bg.addColorStop(0, '#05051a'); bg.addColorStop(0.5, '#0a0a2e'); bg.addColorStop(1, '#0d0520');
         this.ctx.fillStyle = bg; this.ctx.fillRect(0, 0, this.width, this.height);
         const now = Date.now();
-        // Animated grid
         this.ctx.save(); this.ctx.globalAlpha = 0.08;
         this.ctx.strokeStyle = '#00f0ff'; this.ctx.lineWidth = 0.5;
         const gridSize = 60; const offsetY = (now * 0.02) % gridSize;
@@ -190,7 +233,6 @@ class Game {
             this.ctx.beginPath(); this.ctx.moveTo(0, y); this.ctx.lineTo(this.width, y); this.ctx.stroke();
         }
         this.ctx.restore();
-        // Twinkling stars
         this.bgStars.forEach(s => {
             const twinkle = Math.sin(now * s.speed * 0.01 + s.x) * 0.3 + 0.7;
             this.ctx.save(); this.ctx.globalAlpha = s.alpha * twinkle;
@@ -198,7 +240,6 @@ class Game {
             this.ctx.arc(s.x % this.width, s.y % this.height, s.size, 0, Math.PI * 2);
             this.ctx.fill(); this.ctx.restore();
         });
-        // Ambient glow orbs
         const drawOrb = (cx, cy, r, color) => {
             const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
             g.addColorStop(0, color); g.addColorStop(1, 'transparent');
@@ -266,40 +307,44 @@ class Game {
         this.ctx.beginPath(); this.ctx.arc(0, 0, 3, 0, Math.PI * 2);
         this.ctx.fillStyle = '#fff'; this.ctx.fill();
     }
-    _drawCrosshair() {
-        const x = this.crosshairX, y = this.crosshairY, sz = 20, gap = 6, now = Date.now();
+    _drawCrosshair(handId, w) {
+        const x = w.crosshairX, y = w.crosshairY, sz = 20, gap = 6, now = Date.now();
+        const colors = Game.CROSSHAIR_COLORS[handId] || Game.CROSSHAIR_COLORS.Right;
         this.ctx.save(); this.ctx.translate(x, y);
         // Rotating arcs
         this.ctx.save(); this.ctx.rotate(now * 0.002);
-        this.ctx.strokeStyle = 'rgba(0,240,255,0.3)'; this.ctx.lineWidth = 1;
+        this.ctx.strokeStyle = colors.glow + '0.3)'; this.ctx.lineWidth = 1;
         this.ctx.beginPath(); this.ctx.arc(0, 0, sz + 8, 0, Math.PI * 0.5); this.ctx.stroke();
         this.ctx.beginPath(); this.ctx.arc(0, 0, sz + 8, Math.PI, Math.PI * 1.5); this.ctx.stroke();
         this.ctx.restore();
         // Lines
-        this.ctx.strokeStyle = '#00f0ff'; this.ctx.lineWidth = 2;
-        this.ctx.shadowColor = '#00f0ff'; this.ctx.shadowBlur = 10;
+        this.ctx.strokeStyle = colors.main; this.ctx.lineWidth = 2;
+        this.ctx.shadowColor = colors.shadow; this.ctx.shadowBlur = 10;
         [[0, -sz, 0, -gap], [0, gap, 0, sz], [-sz, 0, -gap, 0], [gap, 0, sz, 0]].forEach(([x1, y1, x2, y2]) => {
             this.ctx.beginPath(); this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2); this.ctx.stroke();
         });
         // Center dot
         this.ctx.shadowBlur = 15; this.ctx.beginPath(); this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#00f0ff'; this.ctx.fill();
+        this.ctx.fillStyle = colors.main; this.ctx.fill();
         // Pulse ring
         const p = Math.sin(now * 0.006) * 3;
-        this.ctx.shadowBlur = 5; this.ctx.strokeStyle = 'rgba(0,240,255,0.3)'; this.ctx.lineWidth = 1;
+        this.ctx.shadowBlur = 5; this.ctx.strokeStyle = colors.glow + '0.3)'; this.ctx.lineWidth = 1;
         this.ctx.beginPath(); this.ctx.arc(0, 0, sz + p, 0, Math.PI * 2); this.ctx.stroke();
         this.ctx.restore();
     }
     _drawMuzzleFlash() {
         this.ctx.save(); this.ctx.globalAlpha = this.muzzleFlashAlpha * 0.15;
         this.ctx.fillStyle = '#ffcc33'; this.ctx.fillRect(0, 0, this.width, this.height); this.ctx.restore();
-        if (this.showCrosshair) {
-            const g = this.ctx.createRadialGradient(this.crosshairX, this.crosshairY, 0, this.crosshairX, this.crosshairY, 80);
-            g.addColorStop(0, `rgba(255,200,50,${this.muzzleFlashAlpha * 0.5})`);
-            g.addColorStop(0.4, `rgba(255,100,20,${this.muzzleFlashAlpha * 0.2})`);
-            g.addColorStop(1, 'transparent');
-            this.ctx.save(); this.ctx.fillStyle = g;
-            this.ctx.fillRect(this.crosshairX - 80, this.crosshairY - 80, 160, 160); this.ctx.restore();
+        // Draw flash at each visible crosshair
+        for (const w of Object.values(this.weapons)) {
+            if (w.showCrosshair) {
+                const g = this.ctx.createRadialGradient(w.crosshairX, w.crosshairY, 0, w.crosshairX, w.crosshairY, 80);
+                g.addColorStop(0, `rgba(255,200,50,${this.muzzleFlashAlpha * 0.5})`);
+                g.addColorStop(0.4, `rgba(255,100,20,${this.muzzleFlashAlpha * 0.2})`);
+                g.addColorStop(1, 'transparent');
+                this.ctx.save(); this.ctx.fillStyle = g;
+                this.ctx.fillRect(w.crosshairX - 80, w.crosshairY - 80, 160, 160); this.ctx.restore();
+            }
         }
     }
     _updateParticles() {
@@ -337,6 +382,9 @@ class Game {
         this.isRunning = false; clearInterval(this.timerInterval);
         if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
         if (this._targetTimeout) clearTimeout(this._targetTimeout);
+        for (const w of Object.values(this.weapons)) {
+            if (w.reloadTimer) clearTimeout(w.reloadTimer);
+        }
         window.removeEventListener('resize', this._handleResize);
     }
 }
