@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Shooter — Hand Gesture Tracking</title>
+    <meta name="description" content="Web-based AR shooter game using hand gesture tracking with MediaPipe Hands. Aim with your hand shaped like a pistol and shoot targets!">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Camera Feed (hidden, used as source) -->
+    <video id="camera-feed" autoplay playsinline></video>
+
+    <!-- Main Game Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Start Screen -->
+    <div id="start-screen" class="overlay">
+        <div class="start-content">
+            <h1 class="glitch-text" data-text="AR SHOOTER">AR SHOOTER</h1>
+            <p class="subtitle">Hand Gesture Tracking</p>
+            <div class="instructions">
+                <div class="instruction-item">
+                    <span class="icon">👆</span>
+                    <span>Form a <strong>pistol gesture</strong> with your hand</span>
+                </div>
+                <div class="instruction-item">
+                    <span class="icon">🎯</span>
+                    <span>Aim by <strong>pointing</strong> at targets</span>
+                </div>
+                <div class="instruction-item">
+                    <span class="icon">💥</span>
+                    <span><strong>Flick your thumb</strong> down to shoot</span>
+                </div>
+            </div>
+            <button id="start-btn" class="neon-btn">
+                <span>START GAME</span>
+                <div class="btn-glow"></div>
+            </button>
+            <p class="camera-note">📸 Camera access required</p>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+        <div class="hud-top">
+            <div class="hud-score">
+                <span class="hud-label">SCORE</span>
+                <span id="score-value" class="hud-value">0</span>
+            </div>
+            <div class="hud-timer">
+                <span class="hud-label">TIME</span>
+                <span id="timer-value" class="hud-value">60</span>
+            </div>
+            <div class="hud-combo">
+                <span class="hud-label">COMBO</span>
+                <span id="combo-value" class="hud-value">x1</span>
+            </div>
+        </div>
+        <div class="hud-bottom">
+            <div class="hud-ammo">
+                <span class="hud-label">AMMO</span>
+                <div id="ammo-bar" class="ammo-bar">
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                    <div class="ammo-bullet active"></div>
+                </div>
+            </div>
+            <div id="reload-indicator" class="reload-indicator hidden">
+                <span>RELOADING...</span>
+                <div class="reload-bar"><div class="reload-progress"></div></div>
+            </div>
+        </div>
+        <div id="gesture-status" class="gesture-status">
+            <span class="gesture-dot"></span>
+            <span id="gesture-text">Show pistol gesture...</span>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="overlay hidden">
+        <div class="gameover-content">
+            <h2 class="gameover-title">GAME OVER</h2>
+            <div class="final-stats">
+                <div class="stat-row">
+                    <span>Final Score</span>
+                    <span id="final-score" class="stat-value">0</span>
+                </div>
+                <div class="stat-row">
+                    <span>Targets Hit</span>
+                    <span id="final-hits" class="stat-value">0</span>
+                </div>
+                <div class="stat-row">
+                    <span>Accuracy</span>
+                    <span id="final-accuracy" class="stat-value">0%</span>
+                </div>
+                <div class="stat-row">
+                    <span>Max Combo</span>
+                    <span id="final-combo" class="stat-value">x1</span>
+                </div>
+            </div>
+            <button id="restart-btn" class="neon-btn">
+                <span>PLAY AGAIN</span>
+                <div class="btn-glow"></div>
+            </button>
+        </div>
+    </div>
+
+    <!-- Hit Marker (floating damage numbers) -->
+    <div id="hit-markers"></div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.min.js"></script>
+    <script src="hand-tracking.js"></script>
+    <script src="game.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

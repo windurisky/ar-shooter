@@ -1,0 +1,489 @@
+/* ===== CSS Variables & Design Tokens ===== */
+:root {
+    --neon-cyan: #00f0ff;
+    --neon-magenta: #ff00e5;
+    --neon-green: #00ff88;
+    --neon-red: #ff3344;
+    --neon-yellow: #ffee00;
+    --neon-orange: #ff8800;
+    --bg-dark: #0a0a1a;
+    --glass-bg: rgba(10, 10, 30, 0.6);
+    --glass-border: rgba(0, 240, 255, 0.2);
+    --font-display: 'Orbitron', sans-serif;
+    --font-body: 'Rajdhani', sans-serif;
+}
+
+/* ===== Reset & Base ===== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-dark);
+    font-family: var(--font-body);
+    color: #fff;
+    cursor: none;
+}
+
+/* ===== Camera & Canvas ===== */
+#camera-feed {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1); /* Mirror for natural feel */
+    display: none;
+}
+
+#game-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 10;
+}
+
+/* ===== Overlays ===== */
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(10, 10, 40, 0.85) 0%, rgba(5, 5, 20, 0.95) 100%);
+    backdrop-filter: blur(10px);
+    transition: opacity 0.5s ease;
+}
+
+.overlay.hidden {
+    display: none;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* ===== Start Screen ===== */
+.start-content {
+    text-align: center;
+    max-width: 600px;
+    padding: 2rem;
+}
+
+.glitch-text {
+    font-family: var(--font-display);
+    font-size: clamp(2.5rem, 8vw, 5rem);
+    font-weight: 900;
+    color: #fff;
+    text-shadow:
+        0 0 10px var(--neon-cyan),
+        0 0 40px var(--neon-cyan),
+        0 0 80px rgba(0, 240, 255, 0.4);
+    letter-spacing: 0.1em;
+    position: relative;
+    animation: glitch-flicker 4s infinite;
+}
+
+@keyframes glitch-flicker {
+    0%, 92%, 94%, 96%, 100% { opacity: 1; }
+    93% { opacity: 0.8; transform: translateX(-2px); }
+    95% { opacity: 0.9; transform: translateX(2px); }
+}
+
+.subtitle {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    color: var(--neon-magenta);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    margin-top: 0.5rem;
+    text-shadow: 0 0 20px rgba(255, 0, 229, 0.5);
+}
+
+.instructions {
+    margin: 2.5rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.instruction-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 1rem 1.5rem;
+    font-size: 1.05rem;
+    backdrop-filter: blur(10px);
+    transition: border-color 0.3s;
+}
+
+.instruction-item:hover {
+    border-color: var(--neon-cyan);
+}
+
+.instruction-item .icon {
+    font-size: 1.8rem;
+    min-width: 40px;
+}
+
+/* ===== Neon Button ===== */
+.neon-btn {
+    position: relative;
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: #fff;
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(255, 0, 229, 0.15));
+    border: 2px solid var(--neon-cyan);
+    border-radius: 50px;
+    padding: 1rem 3rem;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+}
+
+.neon-btn:hover {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.3), rgba(255, 0, 229, 0.3));
+    box-shadow:
+        0 0 20px rgba(0, 240, 255, 0.4),
+        0 0 60px rgba(0, 240, 255, 0.2),
+        inset 0 0 20px rgba(0, 240, 255, 0.1);
+    transform: scale(1.05);
+}
+
+.neon-btn:active {
+    transform: scale(0.98);
+}
+
+.btn-glow {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(0, 240, 255, 0.15) 0%, transparent 70%);
+    animation: btn-rotate 4s linear infinite;
+}
+
+@keyframes btn-rotate {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.camera-note {
+    margin-top: 1.5rem;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* ===== HUD ===== */
+#hud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 50;
+    pointer-events: none;
+}
+
+.hud-top {
+    display: flex;
+    justify-content: space-between;
+    padding: 1.5rem 2rem;
+}
+
+.hud-score, .hud-timer, .hud-combo {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 0.6rem 1.5rem;
+    backdrop-filter: blur(12px);
+    text-align: center;
+    min-width: 120px;
+}
+
+.hud-label {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 0.2rem;
+}
+
+.hud-value {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--neon-cyan);
+    text-shadow: 0 0 15px rgba(0, 240, 255, 0.5);
+}
+
+.hud-timer .hud-value {
+    color: var(--neon-yellow);
+    text-shadow: 0 0 15px rgba(255, 238, 0, 0.5);
+}
+
+.hud-combo .hud-value {
+    color: var(--neon-magenta);
+    text-shadow: 0 0 15px rgba(255, 0, 229, 0.5);
+}
+
+.hud-combo .hud-value.combo-active {
+    animation: combo-pulse 0.3s ease;
+}
+
+@keyframes combo-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.4); }
+    100% { transform: scale(1); }
+}
+
+/* ===== Ammo ===== */
+.hud-bottom {
+    position: absolute;
+    bottom: 2rem;
+    left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.hud-ammo {
+    text-align: center;
+}
+
+.ammo-bar {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 0.3rem;
+}
+
+.ammo-bullet {
+    width: 8px;
+    height: 24px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
+}
+
+.ammo-bullet.active {
+    background: linear-gradient(180deg, var(--neon-orange), var(--neon-yellow));
+    box-shadow: 0 0 8px rgba(255, 136, 0, 0.6);
+    border-color: var(--neon-orange);
+}
+
+/* ===== Reload ===== */
+.reload-indicator {
+    text-align: center;
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    letter-spacing: 0.15em;
+    color: var(--neon-yellow);
+    animation: reload-blink 0.6s infinite;
+}
+
+@keyframes reload-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+
+.reload-bar {
+    width: 120px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    margin: 0.4rem auto 0;
+    overflow: hidden;
+}
+
+.reload-progress {
+    height: 100%;
+    width: 0%;
+    background: var(--neon-yellow);
+    border-radius: 2px;
+    transition: width 0.05s linear;
+}
+
+/* ===== Gesture Status ===== */
+.gesture-status {
+    position: absolute;
+    bottom: 6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
+}
+
+.gesture-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--neon-red);
+    box-shadow: 0 0 8px var(--neon-red);
+    transition: background 0.3s, box-shadow 0.3s;
+}
+
+.gesture-status.detected .gesture-dot {
+    background: var(--neon-green);
+    box-shadow: 0 0 8px var(--neon-green);
+}
+
+/* ===== Game Over ===== */
+.gameover-content {
+    text-align: center;
+    max-width: 500px;
+    padding: 2rem;
+}
+
+.gameover-title {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    font-weight: 900;
+    color: var(--neon-red);
+    text-shadow:
+        0 0 15px var(--neon-red),
+        0 0 50px rgba(255, 51, 68, 0.4);
+    letter-spacing: 0.1em;
+    margin-bottom: 2rem;
+}
+
+.final-stats {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 2rem;
+    backdrop-filter: blur(12px);
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 1.05rem;
+}
+
+.stat-row:last-child {
+    border-bottom: none;
+}
+
+.stat-value {
+    font-family: var(--font-display);
+    font-weight: 700;
+    color: var(--neon-cyan);
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+}
+
+/* ===== Hit Markers ===== */
+#hit-markers {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 60;
+    pointer-events: none;
+}
+
+.hit-marker {
+    position: absolute;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.5rem;
+    color: var(--neon-green);
+    text-shadow: 0 0 10px var(--neon-green);
+    pointer-events: none;
+    animation: hit-float 0.8s ease-out forwards;
+}
+
+.hit-marker.miss {
+    color: var(--neon-red);
+    text-shadow: 0 0 10px var(--neon-red);
+    font-size: 1rem;
+}
+
+@keyframes hit-float {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-60px) scale(0.5);
+    }
+}
+
+/* ===== Muzzle Flash (canvas-based but also CSS for overlay) ===== */
+.muzzle-flash {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at var(--flash-x, 50%) var(--flash-y, 50%),
+        rgba(255, 200, 50, 0.3) 0%,
+        transparent 30%);
+    z-index: 55;
+    pointer-events: none;
+    animation: flash-fade 0.1s ease-out forwards;
+}
+
+@keyframes flash-fade {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 600px) {
+    .hud-top {
+        padding: 1rem;
+        gap: 0.5rem;
+    }
+    .hud-score, .hud-timer, .hud-combo {
+        min-width: 80px;
+        padding: 0.4rem 0.8rem;
+    }
+    .hud-value {
+        font-size: 1.2rem;
+    }
+    .instruction-item {
+        padding: 0.8rem 1rem;
+        font-size: 0.9rem;
+    }
+}
