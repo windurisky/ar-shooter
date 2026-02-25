@@ -1,14 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Shooter — Hand Gesture Tracking</title>
-    <meta name="description" content="Web-based AR shooter game using hand gesture tracking with MediaPipe Hands. Aim with your hand shaped like a pistol and shoot targets!">
+    <meta name="description"
+        content="Web-based AR shooter game using hand gesture tracking with MediaPipe Hands. Aim with your hand shaped like a pistol and shoot targets!">
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;700&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
     <!-- Camera Feed (hidden, used as source) -->
     <video id="camera-feed" autoplay playsinline></video>
@@ -73,12 +78,44 @@
             </div>
             <div id="reload-indicator" class="reload-indicator hidden">
                 <span>RELOADING...</span>
-                <div class="reload-bar"><div class="reload-progress"></div></div>
+                <div class="reload-bar">
+                    <div class="reload-progress"></div>
+                </div>
             </div>
         </div>
+        <div class="hud-hint">Press <kbd>C</kbd> to open calibration</div>
         <div id="gesture-status" class="gesture-status">
             <span class="gesture-dot"></span>
             <span id="gesture-text">Show pistol gesture...</span>
+        </div>
+
+        <!-- Calibration Panel (toggle with C key) -->
+        <div id="calib-panel" class="calib-panel hidden">
+            <div class="calib-title">⚙ AIM CALIBRATION <span class="calib-hint">Press C to hide</span></div>
+
+            <div class="calib-row">
+                <label>Sensitivity <span class="calib-val" id="val-sensitivity">1.6</span></label>
+                <input type="range" id="ctrl-sensitivity" min="0.8" max="3.0" step="0.1" value="1.6">
+                <span class="calib-desc">Higher → hand moves crosshair further</span>
+            </div>
+
+            <div class="calib-row">
+                <label>Ray Extend <span class="calib-val" id="val-ray">1.8</span></label>
+                <input type="range" id="ctrl-ray" min="0.5" max="4.0" step="0.1" value="1.8">
+                <span class="calib-desc">Higher → compensates for camera being higher above screen</span>
+            </div>
+
+            <div class="calib-row">
+                <label>Origin Y <span class="calib-val" id="val-originy">0.40</span></label>
+                <input type="range" id="ctrl-originy" min="0.1" max="0.7" step="0.01" value="0.40">
+                <span class="calib-desc">Lower → shifts aim up (camera further above screen)</span>
+            </div>
+
+            <div class="calib-row">
+                <label>Smoothing <span class="calib-val" id="val-smooth">0.30</span></label>
+                <input type="range" id="ctrl-smooth" min="0.05" max="0.8" step="0.05" value="0.30">
+                <span class="calib-desc">Higher → snappier, lower → smoother</span>
+            </div>
         </div>
     </div>
 
@@ -121,4 +158,5 @@
     <script src="game.js"></script>
     <script src="app.js"></script>
 </body>
+
 </html>

@@ -125,8 +125,13 @@
         });
     }
 
-    // ===== Keyboard shortcut for testing (Space = shoot, R = reload) =====
+    // ===== Keyboard shortcuts =====
     document.addEventListener('keydown', (e) => {
+        // C key toggles calibration panel
+        if (e.code === 'KeyC' && hud && !hud.classList.contains('hidden')) {
+            document.getElementById('calib-panel').classList.toggle('hidden');
+            return;
+        }
         if (!game || !game.isRunning) return;
         if (e.code === 'Space') {
             e.preventDefault();
@@ -134,6 +139,21 @@
         }
         if (e.code === 'KeyR') game._startReload();
     });
+
+    // ===== Calibration sliders =====
+    function bindSlider(id, valId, prop, decimals = 1) {
+        const slider = document.getElementById(id);
+        const valEl = document.getElementById(valId);
+        slider.addEventListener('input', () => {
+            const v = parseFloat(slider.value);
+            valEl.textContent = v.toFixed(decimals);
+            if (tracker) tracker[prop] = v;
+        });
+    }
+    bindSlider('ctrl-sensitivity', 'val-sensitivity', 'sensitivity', 1);
+    bindSlider('ctrl-ray', 'val-ray', 'rayExtend', 1);
+    bindSlider('ctrl-originy', 'val-originy', 'aimOriginY', 2);
+    bindSlider('ctrl-smooth', 'val-smooth', 'smoothingFactor', 2);
 
     // ===== Mouse fallback for testing (move = aim, click = shoot) =====
     canvasEl.addEventListener('mousemove', (e) => {
@@ -145,3 +165,4 @@
         game.shoot();
     });
 })();
+

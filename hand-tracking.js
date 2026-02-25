@@ -3,8 +3,23 @@
  * Uses MediaPipe Hands to detect pistol gesture, aim direction, and shoot trigger.
  *
  * Pistol Gesture: Index finger extended, thumb up, middle/ring/pinky curled.
- * Aim: Index fingertip (landmark 8) position mapped to screen coords.
+ * Aim: Ray cast from index knuckle → tip, extrapolated forward by rayExtend to
+ *      compensate for camera being above the screen plane.
  * Shoot: Thumb tip (landmark 4) rapid downward flick relative to thumb MCP (landmark 2).
+ *
+ * ── CALIBRATION ────────────────────────────────────────────────────────────────
+ * rayExtend      — How far past the fingertip to project the aiming ray.
+ *                  Increase if crosshair lags behind real finger target (camera high up).
+ *                  Default: 1.8  Range: 1.0 (no extension) → 3.0 (very extended)
+ *
+ * sensitivity    — Stretches the active hand zone to fill the full screen.
+ *                  Increase if you can't reach screen edges.
+ *                  Default: 1.6  Range: 1.0 (no scaling) → 3.0 (very sensitive)
+ *
+ * aimOriginX/Y  — The center point in camera-space that maps to screen center.
+ *                  0.5/0.5 = literal camera center.
+ *                  Nudge aimOriginY up (e.g. 0.4) if crosshair consistently too low.
+ * ────────────────────────────────────────────────────────────────────────────────
  */
 
 class HandTracker {
@@ -12,6 +27,23 @@ class HandTracker {
         this.hands = null;
         this.camera = null;
         this.videoElement = null;
+
+        // ── Calibration ──────────────────────────────────────────────
+        // Ray extension: projects aim ray past the fingertip.
+        // Compensates for camera being above the screen (top-center mount).
+        // Increase if crosshair is always below where you're pointing.
+        this.rayExtend = 1.8;
+
+        // Sensitivity: scales hand movement range to fill the full screen.
+        // Increase if you can't reach the screen edges.
+        this.sensitivity = 1.6;
+
+        // The camera-space point that maps to screen center (0–1 range).
+        // Default assumes camera is centered horizontally (0.5)
+        // and slightly above mid-frame vertically (0.4) for top-mounted webcam.
+        this.aimOriginX = 0.5;
+        this.aimOriginY = 0.4;
+        // ─────────────────────────────────────────────────────────────
 
         // State
         this.isTracking = false;
@@ -27,10 +59,9 @@ class HandTracker {
         this.thumbHistoryMax = 8;
         this.shootCooldown = false;
         this.shootCooldownMs = 400;
-        this.lastThumbAngle = null;
 
-        // Smoothing
-        this.smoothingFactor = 0.35;
+        // Smoothing (lower = smoother but more lag, higher = more responsive)
+        this.smoothingFactor = 0.3;
 
         // Callbacks
         this.onAimUpdate = null;
@@ -94,11 +125,33 @@ class HandTracker {
         }
 
         if (this.isPistolGesture) {
-            // Calculate aim from index fingertip
-            const indexTip = landmarks[8];
-            // Mirror X because camera is mirrored
-            this.aimX = 1.0 - indexTip.x;
-            this.aimY = indexTip.y;
+            // ── Ray casting aim ──────────────────────────────────────────────
+            // Use the direction from index MCP (knuckle, lm[5]) → tip (lm[8])
+            // and project the ray forward by `rayExtend` past the tip.
+            // This compensates for the camera being above the screen:
+            // the finger points slightly downward toward the screen, so
+            // extending the ray brings the aim point to where the finger is touching.
+            const mcp = landmarks[5];  // index finger knuckle (base)
+            const tip = landmarks[8];  // index finger tip
+
+            // Direction vector from knuckle to tip (in normalized camera space)
+            const dx = tip.x - mcp.x;
+            const dy = tip.y - mcp.y;
+
+            // Projected aim point: extend past the tip by rayExtend factor
+            // Mirror X since camera is horizontally flipped
+            const rawX = 1.0 - (tip.x + dx * this.rayExtend);
+            const rawY = tip.y + dy * this.rayExtend;
+
+            // ── Sensitivity scaling ──────────────────────────────────────────
+            // Remap from camera-space (centered at aimOrigin) to [0,1] screen space.
+            // sensitivity > 1 stretches hand movement to fill screen edges.
+            this.aimX = (rawX - this.aimOriginX) * this.sensitivity + 0.5;
+            this.aimY = (rawY - this.aimOriginY) * this.sensitivity + 0.5;
+
+            // Clamp to valid screen range
+            this.aimX = Math.max(0, Math.min(1, this.aimX));
+            this.aimY = Math.max(0, Math.min(1, this.aimY));
 
             // Smooth aim
             this.smoothAimX += (this.aimX - this.smoothAimX) * this.smoothingFactor;
