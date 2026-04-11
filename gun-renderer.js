@@ -367,14 +367,14 @@ class GunRenderer {
         const hiddenY = state.hiddenPos.y;
         const baseY = hiddenY + (restY - hiddenY) * eased;
 
-        // --- Smooth aim tracking (subtle gun tilt following crosshair) ---
-        state.smoothAimX += (state.aimX - state.smoothAimX) * 0.06;
-        state.smoothAimY += (state.aimY - state.smoothAimY) * 0.06;
+        // --- Smooth aim tracking (gun follows crosshair) ---
+        state.smoothAimX += (state.aimX - state.smoothAimX) * 0.14;
+        state.smoothAimY += (state.aimY - state.smoothAimY) * 0.14;
 
-        const aimOffsetX = (state.smoothAimX - 0.5) * 0.08;
-        const aimOffsetY = (0.5 - state.smoothAimY) * 0.06;
-        const aimRotX = (0.5 - state.smoothAimY) * 0.12;
-        const aimRotY = (state.smoothAimX - 0.5) * -0.15;
+        const aimOffsetX = (state.smoothAimX - 0.5) * 0.25;
+        const aimOffsetY = (0.5 - state.smoothAimY) * 0.15;
+        const aimRotX = (0.5 - state.smoothAimY) * 0.25;
+        const aimRotY = (state.smoothAimX - 0.5) * -0.30;
 
         // --- Idle sway (subtle breathing motion) ---
         const swayX = Math.sin(t * 1.2) * 0.008;
