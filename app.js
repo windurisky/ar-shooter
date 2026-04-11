@@ -125,6 +125,8 @@
             if (gunRenderer) gunRenderer.updateAim(handId, x, y);
         };
         tracker.onShoot = (handId) => {
+            const w = game.weapons[handId];
+            if (w && w.isReloading) return;
             game.shoot(handId);
             if (gunRenderer) gunRenderer.triggerRecoil(handId);
             playShot();
@@ -251,13 +253,12 @@
         if (e.code === 'Space') {
             e.preventDefault();
             // Space shoots both weapons
-            game.shoot('Left');
-            game.shoot('Right');
-            playShot();
-            playShot();
-            if (gunRenderer) {
-                gunRenderer.triggerRecoil('Left');
-                gunRenderer.triggerRecoil('Right');
+            for (const id of ['Left', 'Right']) {
+                const w = game.weapons[id];
+                if (w && w.isReloading) continue;
+                game.shoot(id);
+                playShot();
+                if (gunRenderer) gunRenderer.triggerRecoil(id);
             }
         }
         if (e.code === 'KeyR') {
@@ -295,6 +296,8 @@
     });
     canvasEl.addEventListener('click', (e) => {
         if (!game || !game.isRunning) return;
+        const w = game.weapons['Right'];
+        if (w && w.isReloading) return;
         game.shoot('Right');
         if (gunRenderer) gunRenderer.triggerRecoil('Right');
         playShot();
