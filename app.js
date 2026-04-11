@@ -58,6 +58,15 @@
         clone.play();
     }
 
+    // Start BGM on first user interaction (browsers block autoplay without it)
+    function startBGM() {
+        bgm.play().catch(() => {});
+        document.removeEventListener('click', startBGM);
+        document.removeEventListener('keydown', startBGM);
+    }
+    document.addEventListener('click', startBGM);
+    document.addEventListener('keydown', startBGM);
+
     // Track per-hand gesture state for status text
     const gestureState = { Left: false, Right: false };
 
@@ -67,7 +76,6 @@
         startBtn.disabled = true;
 
         try {
-            bgm.play().catch(() => {});
             tracker = new HandTracker();
             game = new Game(canvasEl);
             gunRenderer = new GunRenderer(gunCanvasEl);
