@@ -47,16 +47,23 @@
     bgm.loop = true;
     bgm.volume = 0.4;
 
-    const sfxShot = new Audio('assets/audio/gun-shot.mp3');
-    sfxShot.volume = 0.6;
-    const sfxReload = new Audio('assets/audio/gun-reload.mp3');
-    sfxReload.volume = 0.6;
-
-    function playSFX(source) {
-        const clone = source.cloneNode();
-        clone.volume = source.volume;
-        clone.play();
+    function createAudioPool(src, size, volume) {
+        const pool = [];
+        for (let i = 0; i < size; i++) {
+            const a = new Audio(src);
+            a.volume = volume;
+            pool.push(a);
+        }
+        let idx = 0;
+        return function play() {
+            pool[idx].currentTime = 0;
+            pool[idx].play().catch(() => {});
+            idx = (idx + 1) % pool.length;
+        };
     }
+
+    const playShot = createAudioPool('assets/audio/gun-shot.mp3', 4, 0.6);
+    const playReload = createAudioPool('assets/audio/gun-reload.mp3', 2, 0.6);
 
     // Start BGM on first user interaction (browsers block autoplay without it)
     function startBGM() {
@@ -98,6 +105,7 @@
     restartBtn.addEventListener('click', () => {
         gameoverScreen.classList.add('hidden');
         hud.classList.remove('hidden');
+        document.getElementById('hit-markers').innerHTML = '';
         game.start();
         updateAmmoUI('Left', game.maxAmmo, game.maxAmmo);
         updateAmmoUI('Right', game.maxAmmo, game.maxAmmo);
@@ -119,7 +127,7 @@
         tracker.onShoot = (handId) => {
             game.shoot(handId);
             if (gunRenderer) gunRenderer.triggerRecoil(handId);
-            playSFX(sfxShot);
+            playShot();
         };
         tracker.onGestureChange = (handId, isPistol) => {
             gestureState[handId] = isPistol;
@@ -143,26 +151,26 @@
             updateGestureStatus();
         };
 
-        game.onScoreUpdate = (s) => {
+        game.on('score', (s) => {
             scoreValue.textContent = s;
             scoreValue.style.transform = 'scale(1.3)';
             setTimeout(() => scoreValue.style.transform = 'scale(1)', 150);
-        };
-        game.onTimeUpdate = (t) => {
+        });
+        game.on('time', (t) => {
             timerValue.textContent = t;
             if (t <= 10) timerValue.style.color = '#ff3344';
-        };
-        game.onComboUpdate = (c) => {
+        });
+        game.on('combo', (c) => {
             comboValue.textContent = c > 0 ? `x${c}` : 'x1';
             if (c > 1) {
                 comboValue.classList.add('combo-active');
                 setTimeout(() => comboValue.classList.remove('combo-active'), 300);
             }
-        };
-        game.onAmmoUpdate = (handId, current, max) => updateAmmoUI(handId, current, max);
-        game.onReloadStart = (handId, duration) => {
+        });
+        game.on('ammo', (handId, current, max) => updateAmmoUI(handId, current, max));
+        game.on('reloadStart', (handId, duration) => {
             if (gunRenderer) gunRenderer.startReload(handId, duration);
-            playSFX(sfxReload);
+            playReload();
             const indicator = reloadEls[handId];
             if (!indicator) return;
             indicator.classList.remove('hidden');
@@ -175,16 +183,22 @@
                 if (pct < 100) reloadAnimIds[handId] = requestAnimationFrame(animReload);
             }
             animReload();
-        };
-        game.onReloadEnd = (handId) => {
+        });
+        game.on('reloadEnd', (handId) => {
             if (gunRenderer) gunRenderer.endReload(handId);
             const indicator = reloadEls[handId];
             if (!indicator) return;
             indicator.classList.add('hidden');
             if (reloadAnimIds[handId]) cancelAnimationFrame(reloadAnimIds[handId]);
-        };
-        game.onGameOver = (stats) => {
-            // Hide all guns on game over
+        });
+        game.on('hit', (x, y, text, isMiss) => {
+            const el = document.createElement('div');
+            el.className = 'hit-marker' + (isMiss ? ' miss' : '');
+            el.textContent = text; el.style.left = x + 'px'; el.style.top = y + 'px';
+            document.getElementById('hit-markers').appendChild(el);
+            setTimeout(() => el.remove(), 800);
+        });
+        game.on('gameOver', (stats) => {
             if (gunRenderer) {
                 gunRenderer.hide('Left');
                 gunRenderer.hide('Right');
@@ -196,7 +210,7 @@
             finalAccuracy.textContent = stats.accuracy + '%';
             finalCombo.textContent = 'x' + stats.maxCombo;
             timerValue.style.color = '';
-        };
+        });
     }
 
     function updateAmmoUI(handId, current, max) {
@@ -239,8 +253,8 @@
             // Space shoots both weapons
             game.shoot('Left');
             game.shoot('Right');
-            playSFX(sfxShot);
-            playSFX(sfxShot);
+            playShot();
+            playShot();
             if (gunRenderer) {
                 gunRenderer.triggerRecoil('Left');
                 gunRenderer.triggerRecoil('Right');
@@ -248,8 +262,8 @@
         }
         if (e.code === 'KeyR') {
             // R reloads both weapons
-            game._startReload('Left');
-            game._startReload('Right');
+            game.reload('Left');
+            game.reload('Right');
         }
     });
 
@@ -283,6 +297,6 @@
         if (!game || !game.isRunning) return;
         game.shoot('Right');
         if (gunRenderer) gunRenderer.triggerRecoil('Right');
-        playSFX(sfxShot);
+        playShot();
     });
 })();

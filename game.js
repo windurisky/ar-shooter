@@ -1,17 +1,22 @@
 /**
- * Game Engine — Targets, scoring, particles, crosshair, game loop.
+ * Game Engine — Targets, scoring, game loop.
  * Supports dual-hand weapons with independent aim, ammo, and reload per hand.
+ * Emits events: score, time, combo, ammo, reloadStart, reloadEnd, gameOver, hit.
  */
-class Game {
+class Game extends EventEmitter {
+    // Per-frame crosshair interpolation speed (0–1, higher = snappier)
+    static AIM_LERP = 0.25;
+
     constructor(canvas) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
-        this.resize();
+        super();
+        this.renderer = new Renderer(canvas);
+        this.particleSystem = new ParticleSystem();
         this.isRunning = false;
         this.score = 0; this.combo = 0; this.maxCombo = 0;
         this.totalShots = 0; this.totalHits = 0;
         this.timeLeft = 60; this.timerInterval = null;
         this.maxAmmo = 6; this.reloadTime = 1500;
+        this.muzzleFlashAlpha = 0;
 
         // Dual weapon system — keyed by hand label ("Left"/"Right")
         this.weapons = {
@@ -21,22 +26,21 @@ class Game {
 
         this.targets = []; this.maxTargets = 4;
         this.targetMinSpawnMs = 800; this.targetMaxSpawnMs = 2000;
-        this.particles = []; this.muzzleFlashAlpha = 0;
-        this.bgStars = []; this._initBgStars();
-        this.onScoreUpdate = null; this.onAmmoUpdate = null;
-        this.onComboUpdate = null; this.onTimeUpdate = null;
-        this.onReloadStart = null; this.onReloadEnd = null; this.onGameOver = null;
+
         this._gameLoop = this._gameLoop.bind(this);
-        this._handleResize = this.resize.bind(this);
+        this._handleResize = () => this.renderer.resize();
         window.addEventListener('resize', this._handleResize);
     }
 
+    get width() { return this.renderer.width; }
+    get height() { return this.renderer.height; }
+
     _createWeapon() {
         return {
-            crosshairX: this.width / 2,
-            crosshairY: this.height / 2,
-            targetX: this.width / 2,
-            targetY: this.height / 2,
+            crosshairX: this.renderer.width / 2,
+            crosshairY: this.renderer.height / 2,
+            targetX: this.renderer.width / 2,
+            targetY: this.renderer.height / 2,
             showCrosshair: false,
             ammo: this.maxAmmo,
             isReloading: false,
@@ -44,21 +48,12 @@ class Game {
         };
     }
 
-    // Per-frame crosshair interpolation speed (0–1, higher = snappier)
-    static AIM_LERP = 0.25;
-
-    // Crosshair colors per hand (MediaPipe "Left" = user's right hand due to mirror)
-    static CROSSHAIR_COLORS = {
-        Left: { main: '#ff00e5', glow: 'rgba(255,0,229,', shadow: '#ff00e5' },   // magenta — user's right
-        Right: { main: '#00f0ff', glow: 'rgba(0,240,255,', shadow: '#00f0ff' },   // cyan — user's left
-    };
-
-    resize() {
-        this.width = window.innerWidth; this.height = window.innerHeight;
-        this.canvas.width = this.width; this.canvas.height = this.height;
-    }
     start() {
-        this.score = 0; this.combo = 0; this.maxCombo = 0; this.totalShots = 0; this.totalHits = 0;
+        if (this._targetTimeout) clearTimeout(this._targetTimeout);
+        if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
+        clearInterval(this.timerInterval);
+        this.score = 0; this.combo = 0; this.maxCombo = 0;
+        this.totalShots = 0; this.totalHits = 0;
         this.timeLeft = 60;
         for (const id of Object.keys(this.weapons)) {
             const w = this.weapons[id];
@@ -68,15 +63,18 @@ class Game {
             if (w.reloadTimer) clearTimeout(w.reloadTimer);
             w.reloadTimer = null;
         }
-        this.targets = []; this.particles = []; this.isRunning = true;
+        this.targets = [];
+        this.particleSystem.clear();
+        this.isRunning = true;
         this.timerInterval = setInterval(() => {
             this.timeLeft--;
-            if (this.onTimeUpdate) this.onTimeUpdate(this.timeLeft);
+            this.emit('time', this.timeLeft);
             if (this.timeLeft <= 0) this.stop();
         }, 1000);
         this._scheduleNextTarget();
         this._animFrameId = requestAnimationFrame(this._gameLoop);
     }
+
     stop() {
         this.isRunning = false;
         clearInterval(this.timerInterval);
@@ -85,12 +83,13 @@ class Game {
         for (const w of Object.values(this.weapons)) {
             if (w.reloadTimer) clearTimeout(w.reloadTimer);
         }
-        if (this.onGameOver) this.onGameOver({
+        this.emit('gameOver', {
             score: this.score, hits: this.totalHits, shots: this.totalShots,
             accuracy: this.totalShots > 0 ? Math.round((this.totalHits / this.totalShots) * 100) : 0,
             maxCombo: this.maxCombo
         });
     }
+
     updateAim(handId, normX, normY) {
         const w = this.weapons[handId];
         if (!w) return;
@@ -98,17 +97,19 @@ class Game {
         w.targetY = normY * this.height;
         w.showCrosshair = true;
     }
+
     hideCrosshair(handId) {
         const w = this.weapons[handId];
         if (w) w.showCrosshair = false;
     }
+
     shoot(handId) {
         if (!this.isRunning) return;
         const w = this.weapons[handId];
         if (!w || w.isReloading) return;
         if (w.ammo <= 0) { this._startReload(handId); return; }
         w.ammo--; this.totalShots++; this.muzzleFlashAlpha = 1.0;
-        if (this.onAmmoUpdate) this.onAmmoUpdate(handId, w.ammo, this.maxAmmo);
+        this.emit('ammo', handId, w.ammo, this.maxAmmo);
         let hit = false;
         for (let i = this.targets.length - 1; i >= 0; i--) {
             const t = this.targets[i];
@@ -118,38 +119,48 @@ class Game {
                 if (this.combo > this.maxCombo) this.maxCombo = this.combo;
                 const pts = this._calcPoints(t, dist);
                 this.score += pts;
-                this._spawnExplosion(t.x, t.y, t.color);
-                this._showHitMarker(t.x, t.y, `+${pts}`);
+                this.particleSystem.spawnExplosion(t.x, t.y, t.color);
+                this.emit('hit', t.x, t.y, `+${pts}`, false);
                 this.targets.splice(i, 1);
-                if (this.onScoreUpdate) this.onScoreUpdate(this.score);
-                if (this.onComboUpdate) this.onComboUpdate(this.combo);
+                this.emit('score', this.score);
+                this.emit('combo', this.combo);
                 break;
             }
         }
         if (!hit) {
             this.combo = 0;
-            if (this.onComboUpdate) this.onComboUpdate(this.combo);
-            this._showHitMarker(w.crosshairX, w.crosshairY - 20, 'MISS', true);
+            this.emit('combo', this.combo);
+            this.emit('hit', w.crosshairX, w.crosshairY - 20, 'MISS', true);
         }
         if (w.ammo <= 0) setTimeout(() => this._startReload(handId), 300);
     }
+
+    reload(handId) {
+        if (!this.isRunning) return;
+        this._startReload(handId);
+    }
+
+    // --- Private ---
+
     _calcPoints(t, dist) {
         let base = 100 + Math.floor((1 - dist / (t.radius + 15)) * 50);
         const mult = Math.min(1 + this.combo * 0.5, 5);
         if (t.radius < 25) base += 50;
         return Math.floor(base * mult);
     }
+
     _startReload(handId) {
         const w = this.weapons[handId];
         if (!w || w.isReloading) return;
         w.isReloading = true;
-        if (this.onReloadStart) this.onReloadStart(handId, this.reloadTime);
+        this.emit('reloadStart', handId, this.reloadTime);
         w.reloadTimer = setTimeout(() => {
             w.ammo = this.maxAmmo; w.isReloading = false; w.reloadTimer = null;
-            if (this.onAmmoUpdate) this.onAmmoUpdate(handId, w.ammo, this.maxAmmo);
-            if (this.onReloadEnd) this.onReloadEnd(handId);
+            this.emit('ammo', handId, w.ammo, this.maxAmmo);
+            this.emit('reloadEnd', handId);
         }, this.reloadTime);
     }
+
     _scheduleNextTarget() {
         if (!this.isRunning) return;
         const delay = this.targetMinSpawnMs + Math.random() * (this.targetMaxSpawnMs - this.targetMinSpawnMs);
@@ -158,9 +169,11 @@ class Game {
             this._scheduleNextTarget();
         }, delay);
     }
+
     _spawnTarget() {
         const pad = 80, r = 20 + Math.random() * 25;
-        const x = pad + Math.random() * (this.width - pad * 2), y = pad + Math.random() * (this.height - pad * 2);
+        const x = pad + Math.random() * (this.width - pad * 2);
+        const y = pad + Math.random() * (this.height - pad * 2);
         const cols = [
             { main: '#ff3344', glow: 'rgba(255,51,68,0.5)' },
             { main: '#ff00e5', glow: 'rgba(255,0,229,0.5)' },
@@ -177,93 +190,9 @@ class Game {
             type: Math.random() > 0.7 ? 'diamond' : 'circle'
         });
     }
-    _spawnExplosion(x, y, color) {
-        const count = 20 + Math.floor(Math.random() * 15);
-        for (let i = 0; i < count; i++) {
-            const a = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
-            const s = 2 + Math.random() * 6;
-            this.particles.push({
-                x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-                life: 1, decay: 0.02 + Math.random() * 0.02, size: 2 + Math.random() * 4, color
-            });
-        }
-        this.particles.push({
-            x, y, vx: 0, vy: 0, life: 1, decay: 0.04, size: 5,
-            color: '#ffffff', isRing: true, ringRadius: 10, ringExpand: 8
-        });
-    }
-    _showHitMarker(x, y, text, isMiss = false) {
-        const el = document.createElement('div');
-        el.className = 'hit-marker' + (isMiss ? ' miss' : '');
-        el.textContent = text; el.style.left = x + 'px'; el.style.top = y + 'px';
-        document.getElementById('hit-markers').appendChild(el);
-        setTimeout(() => el.remove(), 800);
-    }
-    _gameLoop() {
-        if (!this.isRunning) return;
-        this.ctx.clearRect(0, 0, this.width, this.height);
-        this._drawBackground(); this._updateTargets(); this._drawTargets();
-        this._updateParticles(); this._drawParticles();
-        // Smoothly interpolate crosshairs toward target every render frame
-        const lerp = Game.AIM_LERP;
-        for (const w of Object.values(this.weapons)) {
-            w.crosshairX += (w.targetX - w.crosshairX) * lerp;
-            w.crosshairY += (w.targetY - w.crosshairY) * lerp;
-        }
-        // Draw crosshairs for all active weapons
-        for (const [handId, w] of Object.entries(this.weapons)) {
-            if (w.showCrosshair) this._drawCrosshair(handId, w);
-        }
-        if (this.muzzleFlashAlpha > 0) { this._drawMuzzleFlash(); this.muzzleFlashAlpha -= 0.08; }
-        this._drawScanLines();
-        this._animFrameId = requestAnimationFrame(this._gameLoop);
-    }
-    _initBgStars() {
-        this.bgStars = [];
-        for (let i = 0; i < 80; i++) {
-            this.bgStars.push({
-                x: Math.random() * 2000, y: Math.random() * 2000,
-                size: 0.5 + Math.random() * 1.5,
-                speed: 0.1 + Math.random() * 0.3,
-                alpha: 0.2 + Math.random() * 0.6
-            });
-        }
-    }
-    _drawBackground() {
-        const bg = this.ctx.createLinearGradient(0, 0, 0, this.height);
-        bg.addColorStop(0, '#05051a'); bg.addColorStop(0.5, '#0a0a2e'); bg.addColorStop(1, '#0d0520');
-        this.ctx.fillStyle = bg; this.ctx.fillRect(0, 0, this.width, this.height);
-        const now = Date.now();
-        this.ctx.save(); this.ctx.globalAlpha = 0.08;
-        this.ctx.strokeStyle = '#00f0ff'; this.ctx.lineWidth = 0.5;
-        const gridSize = 60; const offsetY = (now * 0.02) % gridSize;
-        for (let x = 0; x < this.width; x += gridSize) {
-            this.ctx.beginPath(); this.ctx.moveTo(x, 0); this.ctx.lineTo(x, this.height); this.ctx.stroke();
-        }
-        for (let y = -gridSize + offsetY; y < this.height + gridSize; y += gridSize) {
-            this.ctx.beginPath(); this.ctx.moveTo(0, y); this.ctx.lineTo(this.width, y); this.ctx.stroke();
-        }
-        this.ctx.restore();
-        this.bgStars.forEach(s => {
-            const twinkle = Math.sin(now * s.speed * 0.01 + s.x) * 0.3 + 0.7;
-            this.ctx.save(); this.ctx.globalAlpha = s.alpha * twinkle;
-            this.ctx.fillStyle = '#fff'; this.ctx.beginPath();
-            this.ctx.arc(s.x % this.width, s.y % this.height, s.size, 0, Math.PI * 2);
-            this.ctx.fill(); this.ctx.restore();
-        });
-        const drawOrb = (cx, cy, r, color) => {
-            const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-            g.addColorStop(0, color); g.addColorStop(1, 'transparent');
-            this.ctx.fillStyle = g; this.ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-        };
-        this.ctx.save(); this.ctx.globalAlpha = 0.04;
-        drawOrb(this.width * 0.2, this.height * 0.3, 300, '#00f0ff');
-        drawOrb(this.width * 0.8, this.height * 0.7, 250, '#ff00e5');
-        drawOrb(this.width * 0.5 + Math.sin(now * 0.0005) * 100, this.height * 0.5, 200, '#aa33ff');
-        this.ctx.restore();
-    }
-    _updateTargets() {
-        const now = Date.now(), pad = 40;
+
+    _updateTargets(now) {
+        const pad = 40;
         for (let i = this.targets.length - 1; i >= 0; i--) {
             const t = this.targets[i];
             t.x += t.vx; t.y += t.vy;
@@ -271,131 +200,53 @@ class Game {
             if (t.y < pad || t.y > this.height - pad) t.vy *= -1;
             t.x = Math.max(pad, Math.min(this.width - pad, t.x));
             t.y = Math.max(pad, Math.min(this.height - pad, t.y));
-            if (now - t.born > t.lifetime) this.targets.splice(i, 1);
+            if (now - t.born > t.lifetime) {
+                this.targets[i] = this.targets[this.targets.length - 1];
+                this.targets.pop();
+            }
         }
     }
-    _drawTargets() {
+
+    _gameLoop() {
+        if (!this.isRunning) return;
         const now = Date.now();
-        this.targets.forEach(t => {
-            const pulse = Math.sin(now * 0.005 + t.pulsePhase) * 0.2 + 1;
-            const age = (now - t.born) / t.lifetime;
-            const fade = age > 0.8 ? 1 - ((age - 0.8) / 0.2) : 1;
-            const r = t.radius * pulse;
-            this.ctx.save(); this.ctx.globalAlpha = fade; this.ctx.translate(t.x, t.y);
-            if (t.type === 'diamond') { this.ctx.rotate(Math.PI / 4 + now * 0.001); this._drawDiamond(r, t); }
-            else this._drawCircle(r, t);
-            this.ctx.restore();
-        });
-    }
-    _drawCircle(r, t) {
-        const g = this.ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, r * 2);
-        g.addColorStop(0, t.glowColor); g.addColorStop(1, 'transparent');
-        this.ctx.fillStyle = g; this.ctx.fillRect(-r * 2, -r * 2, r * 4, r * 4);
-        this.ctx.beginPath(); this.ctx.arc(0, 0, r, 0, Math.PI * 2);
-        this.ctx.strokeStyle = t.color; this.ctx.lineWidth = 3; this.ctx.stroke();
-        this.ctx.beginPath(); this.ctx.arc(0, 0, r * 0.6, 0, Math.PI * 2);
-        this.ctx.lineWidth = 2; this.ctx.stroke();
-        this.ctx.beginPath(); this.ctx.arc(0, 0, 4, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#fff'; this.ctx.fill();
-        [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach(a => {
-            this.ctx.beginPath();
-            this.ctx.moveTo(Math.cos(a) * r * 0.7, Math.sin(a) * r * 0.7);
-            this.ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-            this.ctx.strokeStyle = t.color; this.ctx.lineWidth = 1.5; this.ctx.stroke();
-        });
-    }
-    _drawDiamond(r, t) {
-        const g = this.ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 1.8);
-        g.addColorStop(0, t.glowColor); g.addColorStop(1, 'transparent');
-        this.ctx.fillStyle = g; this.ctx.fillRect(-r * 2, -r * 2, r * 4, r * 4);
-        this.ctx.beginPath(); this.ctx.moveTo(0, -r); this.ctx.lineTo(r, 0);
-        this.ctx.lineTo(0, r); this.ctx.lineTo(-r, 0); this.ctx.closePath();
-        this.ctx.strokeStyle = t.color; this.ctx.lineWidth = 3; this.ctx.stroke();
-        const ir = r * 0.5;
-        this.ctx.beginPath(); this.ctx.moveTo(0, -ir); this.ctx.lineTo(ir, 0);
-        this.ctx.lineTo(0, ir); this.ctx.lineTo(-ir, 0); this.ctx.closePath();
-        this.ctx.lineWidth = 2; this.ctx.stroke();
-        this.ctx.beginPath(); this.ctx.arc(0, 0, 3, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#fff'; this.ctx.fill();
-    }
-    _drawCrosshair(handId, w) {
-        const x = w.crosshairX, y = w.crosshairY, sz = 20, gap = 6, now = Date.now();
-        const colors = Game.CROSSHAIR_COLORS[handId] || Game.CROSSHAIR_COLORS.Right;
-        this.ctx.save(); this.ctx.translate(x, y);
-        // Rotating arcs
-        this.ctx.save(); this.ctx.rotate(now * 0.002);
-        this.ctx.strokeStyle = colors.glow + '0.3)'; this.ctx.lineWidth = 1;
-        this.ctx.beginPath(); this.ctx.arc(0, 0, sz + 8, 0, Math.PI * 0.5); this.ctx.stroke();
-        this.ctx.beginPath(); this.ctx.arc(0, 0, sz + 8, Math.PI, Math.PI * 1.5); this.ctx.stroke();
-        this.ctx.restore();
-        // Lines
-        this.ctx.strokeStyle = colors.main; this.ctx.lineWidth = 2;
-        this.ctx.shadowColor = colors.shadow; this.ctx.shadowBlur = 10;
-        [[0, -sz, 0, -gap], [0, gap, 0, sz], [-sz, 0, -gap, 0], [gap, 0, sz, 0]].forEach(([x1, y1, x2, y2]) => {
-            this.ctx.beginPath(); this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2); this.ctx.stroke();
-        });
-        // Center dot
-        this.ctx.shadowBlur = 15; this.ctx.beginPath(); this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
-        this.ctx.fillStyle = colors.main; this.ctx.fill();
-        // Pulse ring
-        const p = Math.sin(now * 0.006) * 3;
-        this.ctx.shadowBlur = 5; this.ctx.strokeStyle = colors.glow + '0.3)'; this.ctx.lineWidth = 1;
-        this.ctx.beginPath(); this.ctx.arc(0, 0, sz + p, 0, Math.PI * 2); this.ctx.stroke();
-        this.ctx.restore();
-    }
-    _drawMuzzleFlash() {
-        this.ctx.save(); this.ctx.globalAlpha = this.muzzleFlashAlpha * 0.15;
-        this.ctx.fillStyle = '#ffcc33'; this.ctx.fillRect(0, 0, this.width, this.height); this.ctx.restore();
-        // Draw flash at each visible crosshair
+
+        this.renderer.clear();
+        this.renderer.drawBackground(now);
+
+        this._updateTargets(now);
+        this.renderer.drawTargets(this.targets, now);
+
+        this.particleSystem.update();
+        this.renderer.drawParticles(this.particleSystem.getParticles());
+
+        // Smoothly interpolate crosshairs toward target
+        const lerp = Game.AIM_LERP;
         for (const w of Object.values(this.weapons)) {
-            if (w.showCrosshair) {
-                const g = this.ctx.createRadialGradient(w.crosshairX, w.crosshairY, 0, w.crosshairX, w.crosshairY, 80);
-                g.addColorStop(0, `rgba(255,200,50,${this.muzzleFlashAlpha * 0.5})`);
-                g.addColorStop(0.4, `rgba(255,100,20,${this.muzzleFlashAlpha * 0.2})`);
-                g.addColorStop(1, 'transparent');
-                this.ctx.save(); this.ctx.fillStyle = g;
-                this.ctx.fillRect(w.crosshairX - 80, w.crosshairY - 80, 160, 160); this.ctx.restore();
-            }
+            w.crosshairX += (w.targetX - w.crosshairX) * lerp;
+            w.crosshairY += (w.targetY - w.crosshairY) * lerp;
         }
-    }
-    _updateParticles() {
-        for (let i = this.particles.length - 1; i >= 0; i--) {
-            const p = this.particles[i];
-            p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.vx *= 0.98; p.life -= p.decay;
-            if (p.isRing) p.ringRadius += p.ringExpand;
-            if (p.life <= 0) this.particles.splice(i, 1);
+
+        this.renderer.drawCrosshairs(this.weapons, now);
+
+        if (this.muzzleFlashAlpha > 0) {
+            this.renderer.drawMuzzleFlash(this.weapons, this.muzzleFlashAlpha);
+            this.muzzleFlashAlpha -= 0.08;
         }
+
+        this.renderer.drawScanLines();
+        this._animFrameId = requestAnimationFrame(this._gameLoop);
     }
-    _drawParticles() {
-        this.particles.forEach(p => {
-            this.ctx.save(); this.ctx.globalAlpha = p.life;
-            if (p.isRing) {
-                this.ctx.beginPath(); this.ctx.arc(p.x, p.y, p.ringRadius, 0, Math.PI * 2);
-                this.ctx.strokeStyle = p.color; this.ctx.lineWidth = 2 * p.life;
-                this.ctx.shadowColor = p.color; this.ctx.shadowBlur = 10; this.ctx.stroke();
-            } else {
-                this.ctx.beginPath(); this.ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-                this.ctx.fillStyle = p.color; this.ctx.shadowColor = p.color;
-                this.ctx.shadowBlur = 8; this.ctx.fill();
-            }
-            this.ctx.restore();
-        });
-    }
-    _drawScanLines() {
-        this.ctx.save(); this.ctx.globalAlpha = 0.03;
-        for (let y = 0; y < this.height; y += 3) { this.ctx.fillStyle = '#000'; this.ctx.fillRect(0, y, this.width, 1); }
-        this.ctx.restore();
-        const v = this.ctx.createRadialGradient(this.width / 2, this.height / 2, this.height * 0.3, this.width / 2, this.height / 2, this.height * 0.8);
-        v.addColorStop(0, 'transparent'); v.addColorStop(1, 'rgba(0,0,0,0.4)');
-        this.ctx.fillStyle = v; this.ctx.fillRect(0, 0, this.width, this.height);
-    }
+
     destroy() {
-        this.isRunning = false; clearInterval(this.timerInterval);
+        this.isRunning = false;
+        clearInterval(this.timerInterval);
         if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
         if (this._targetTimeout) clearTimeout(this._targetTimeout);
         for (const w of Object.values(this.weapons)) {
             if (w.reloadTimer) clearTimeout(w.reloadTimer);
         }
         window.removeEventListener('resize', this._handleResize);
+        this.renderer.destroy();
     }
 }

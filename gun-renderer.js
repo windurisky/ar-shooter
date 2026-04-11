@@ -54,7 +54,6 @@ class GunRenderer {
         this._startTime = Date.now();
         this._animate();
 
-        console.log('[GunRenderer] Initialized — scene has', this.scene.children.length, 'objects');
     }
 
     _createGunState(handId) {
@@ -278,6 +277,17 @@ class GunRenderer {
         state.hiddenPos = { x: xPos, y: -1.2, z: -0.7 };
         state.side = side;
 
+        // Cache child references to avoid getObjectByName per frame
+        state.muzzleFlash = flashGroup;
+        state.flashCore = flashGroup.getObjectByName('flashCore');
+        state.flashOuter = flashGroup.getObjectByName('flashOuter');
+        state.flashStreaks = [];
+        for (let i = 0; i < 4; i++) {
+            state.flashStreaks.push(flashGroup.getObjectByName('streak' + i));
+        }
+        state.flashLight = flashGroup.getObjectByName('flashLight');
+        state.magazine = mag;
+
         this.scene.add(group);
     }
 
@@ -286,7 +296,6 @@ class GunRenderer {
     show(handId) {
         const state = this.guns[handId];
         if (state) {
-            console.log('[GunRenderer] show', handId);
             state.targetShow = 1;
         }
     }
@@ -422,29 +431,21 @@ class GunRenderer {
             }
         }
 
-        // --- Muzzle flash ---
-        const flash = group.getObjectByName('muzzleFlash');
+        // --- Muzzle flash (using cached refs) ---
+        const flash = state.muzzleFlash;
         if (flash) {
             if (state.muzzleFlashTime > 0.01) {
                 flash.visible = true;
                 const f = state.muzzleFlashTime;
-                // Scale flash based on intensity
                 const scale = 0.5 + f * 1.5;
                 flash.scale.set(scale, scale, scale);
-                // Randomize rotation for organic look
                 flash.rotation.z = Math.random() * Math.PI * 2;
-                // Update material opacities
-                const core = flash.getObjectByName('flashCore');
-                if (core) core.material.opacity = f;
-                const outer = flash.getObjectByName('flashOuter');
-                if (outer) outer.material.opacity = f * 0.6;
-                for (let i = 0; i < 4; i++) {
-                    const streak = flash.getObjectByName('streak' + i);
-                    if (streak) streak.material.opacity = f * 0.7;
+                if (state.flashCore) state.flashCore.material.opacity = f;
+                if (state.flashOuter) state.flashOuter.material.opacity = f * 0.6;
+                for (let i = 0; i < state.flashStreaks.length; i++) {
+                    if (state.flashStreaks[i]) state.flashStreaks[i].material.opacity = f * 0.7;
                 }
-                const light = flash.getObjectByName('flashLight');
-                if (light) light.intensity = f * 3;
-                // Rapid decay
+                if (state.flashLight) state.flashLight.intensity = f * 3;
                 state.muzzleFlashTime *= 0.65;
                 if (state.muzzleFlashTime < 0.01) state.muzzleFlashTime = 0;
             } else {
@@ -452,8 +453,8 @@ class GunRenderer {
             }
         }
 
-        // Update magazine position
-        const mag = group.getObjectByName('magazine');
+        // Update magazine position (using cached ref)
+        const mag = state.magazine;
         if (mag) {
             mag.position.y = -0.26 + magOffsetY;
             mag.visible = !(state.isReloading && state.reloadProgress > 0.3 && state.reloadProgress < 0.55);
