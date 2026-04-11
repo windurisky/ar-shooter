@@ -373,7 +373,7 @@ class GunRenderer {
 
         const aimOffsetX = (state.smoothAimX - 0.5) * 0.08;
         const aimOffsetY = (0.5 - state.smoothAimY) * 0.06;
-        const aimRotX = (state.smoothAimY - 0.5) * 0.12;
+        const aimRotX = (0.5 - state.smoothAimY) * 0.12;
         const aimRotY = (state.smoothAimX - 0.5) * -0.15;
 
         // --- Idle sway (subtle breathing motion) ---
