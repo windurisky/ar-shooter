@@ -30,11 +30,11 @@ assets/             — Audio files (BGM, gun-shot, gun-reload)
 ## Running Locally
 
 ```bash
-python3 -m http.server 8080
+python3 -m http.server 8082
 # or: npx serve .
 ```
 
-Open `http://localhost:8080` in Chrome/Edge. Camera access requires localhost or HTTPS.
+Open `http://localhost:8082` in Chrome/Edge. Camera access requires localhost or HTTPS.
 
 ## Architecture Notes
 

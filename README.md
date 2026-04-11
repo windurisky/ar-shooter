@@ -13,12 +13,12 @@ A browser-based shooter game controlled entirely by your hand. Point your finger
 cd ar-shooter
 
 # Start a local server (any of these work)
-python3 -m http.server 8080
+python3 -m http.server 8082
 # or: npx serve .
 # or: npx http-server .
 ```
 
-Then open **http://localhost:8080** in Chrome or Edge.
+Then open **http://localhost:8082** in Chrome or Edge.
 
 > ⚠️ **Must run on localhost or HTTPS** — camera access requires a secure context.
 
