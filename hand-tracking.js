@@ -79,6 +79,11 @@ class HandTracker {
                 shootCooldown: false,
                 // Gesture debounce: require N consistent frames before changing state
                 gestureFrameCount: 0,
+                // Per-hand calibration overrides (null = use global defaults)
+                calibOriginX: null,
+                calibOriginY: null,
+                calibSensitivity: null,
+                calibRayExtend: null,
             };
         }
         return this.handState[handId];
@@ -169,16 +174,22 @@ class HandTracker {
         const dx = tip.x - mcp.x;
         const dy = tip.y - mcp.y;
 
+        // Use per-hand calibration if available, otherwise fall back to globals
+        const rayExt = state.calibRayExtend ?? this.rayExtend;
+        const originX = state.calibOriginX ?? this.aimOriginX;
+        const originY = state.calibOriginY ?? this.aimOriginY;
+        const sens = state.calibSensitivity ?? this.sensitivity;
+
         // Mirror X since camera is horizontally flipped
-        const rawX = 1.0 - (tip.x + dx * this.rayExtend);
-        const rawY = tip.y + dy * this.rayExtend;
+        const rawX = 1.0 - (tip.x + dx * rayExt);
+        const rawY = tip.y + dy * rayExt;
 
         // Store raw values for calibration
         state.rawAimX = rawX;
         state.rawAimY = rawY;
 
-        state.aimX = (rawX - this.aimOriginX) * this.sensitivity + 0.5;
-        state.aimY = (rawY - this.aimOriginY) * this.sensitivity + 0.5;
+        state.aimX = (rawX - originX) * sens + 0.5;
+        state.aimY = (rawY - originY) * sens + 0.5;
 
         state.aimX = Math.max(0, Math.min(1, state.aimX));
         state.aimY = Math.max(0, Math.min(1, state.aimY));

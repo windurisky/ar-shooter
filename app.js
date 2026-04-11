@@ -254,54 +254,81 @@
     const calibStepNum = document.getElementById('calib-step-num');
     const calibInstruction = document.getElementById('calib-wizard-instruction');
     const calibBar = document.getElementById('calib-wizard-bar');
+    const calibHandLabel = document.getElementById('calib-wizard-hand');
+    const calibSkipBtn = document.getElementById('calib-wizard-skip');
 
     let calibration = null; // null = not calibrating
 
     const CALIB_POINTS = [
-        { sx: 0.5, sy: 0.5, label: 'the CENTER of the screen' },
-        { sx: 0.15, sy: 0.15, label: 'the TOP-LEFT target' },
-        { sx: 0.85, sy: 0.85, label: 'the BOTTOM-RIGHT target' },
+        { sx: 0.5, sy: 0.5, label: 'the CENTER' },
+        { sx: 0.15, sy: 0.15, label: 'the TOP-LEFT' },
+        { sx: 0.85, sy: 0.85, label: 'the BOTTOM-RIGHT' },
     ];
-    const CALIB_FRAMES_NEEDED = 50; // ~1.7s at 30fps
+    // Calibrate both hands: each hand goes through all 3 points
+    // MediaPipe "Left" = user's right hand (mirrored camera)
+    const CALIB_HANDS = [
+        { handId: 'Left', userLabel: 'RIGHT HAND', color: 'var(--neon-magenta)' },
+        { handId: 'Right', userLabel: 'LEFT HAND', color: 'var(--neon-cyan)' },
+    ];
+    const CALIB_FRAMES_NEEDED = 50;
     const CALIB_RAY_EXTEND = 1.5;
 
     function startCalibration() {
-        // Hide calib panel
         document.getElementById('calib-panel').classList.add('hidden');
-
-        // Pause game if running
         if (game && game.isRunning) game.pause();
 
-        // Set a fixed rayExtend for calibration
-        const prevRayExtend = tracker ? tracker.rayExtend : 1.8;
-        if (tracker) tracker.rayExtend = CALIB_RAY_EXTEND;
+        // Set fixed rayExtend for calibration on both hands
+        if (tracker) {
+            // Clear any per-hand rayExtend so global applies during calibration
+            for (const hid of ['Left', 'Right']) {
+                const s = tracker._getHandState(hid);
+                s.calibRayExtend = CALIB_RAY_EXTEND;
+            }
+            tracker.rayExtend = CALIB_RAY_EXTEND;
+        }
 
         calibration = {
-            step: 0,
-            samples: [],          // collected per-point: [{ rawX, rawY }[], ...]
+            handIdx: 0,       // index into CALIB_HANDS
+            pointIdx: 0,      // index into CALIB_POINTS
             currentSamples: [],
-            prevRayExtend: prevRayExtend,
+            results: {},      // handId → { originX, originY, sensitivity }
         };
 
         calibWizard.classList.remove('hidden');
-        showCalibStep(0);
+        calibSkipBtn.classList.remove('hidden');
+        showCalibStep();
     }
 
-    function showCalibStep(idx) {
-        const pt = CALIB_POINTS[idx];
-        calibStepNum.textContent = idx + 1;
-        calibInstruction.textContent = 'Point at ' + pt.label;
+    function showCalibStep() {
+        const hand = CALIB_HANDS[calibration.handIdx];
+        const pt = CALIB_POINTS[calibration.pointIdx];
+        const totalStep = calibration.handIdx * CALIB_POINTS.length + calibration.pointIdx + 1;
+        const totalSteps = CALIB_HANDS.length * CALIB_POINTS.length;
+
+        calibStepNum.textContent = totalStep;
+        // Update "of N" in the step label
+        calibWizard.querySelector('.calib-wizard-step').textContent =
+            'STEP ' + totalStep + ' OF ' + totalSteps;
+
+        calibHandLabel.textContent = hand.userLabel;
+        calibHandLabel.style.color = hand.color;
+        calibInstruction.textContent = 'Point your ' + hand.userLabel.toLowerCase() + ' at ' + pt.label;
+
         calibTarget.style.left = (pt.sx * 100) + '%';
         calibTarget.style.top = (pt.sy * 100) + '%';
         calibBar.style.width = '0%';
-        calibration.step = idx;
         calibration.currentSamples = [];
     }
 
     function collectCalibSample(handId) {
         if (!calibration || !tracker) return;
+        // No more hands to calibrate (showing "complete" message)
+        if (calibration.handIdx >= CALIB_HANDS.length) return;
 
-        // Read raw aim from any hand that has pistol gesture
+        const expectedHand = CALIB_HANDS[calibration.handIdx].handId;
+        // Only accept samples from the hand we're currently calibrating
+        if (handId !== expectedHand) return;
+
         const state = tracker.handState[handId];
         if (!state || !state.isPistolGesture) return;
 
@@ -310,38 +337,42 @@
             rawY: state.rawAimY,
         });
 
-        // Update progress bar
         const pct = Math.min((calibration.currentSamples.length / CALIB_FRAMES_NEEDED) * 100, 100);
         calibBar.style.width = pct + '%';
 
-        // Check if this step is done
         if (calibration.currentSamples.length >= CALIB_FRAMES_NEEDED) {
-            calibration.samples.push(calibration.currentSamples.slice());
-            const nextStep = calibration.step + 1;
+            // Store samples for this point
+            const hand = CALIB_HANDS[calibration.handIdx];
+            if (!calibration.results[hand.handId]) {
+                calibration.results[hand.handId] = { samples: [] };
+            }
+            calibration.results[hand.handId].samples.push(calibration.currentSamples.slice());
 
-            if (nextStep < CALIB_POINTS.length) {
-                showCalibStep(nextStep);
+            // Advance to next point or next hand
+            calibration.pointIdx++;
+            if (calibration.pointIdx < CALIB_POINTS.length) {
+                showCalibStep();
             } else {
-                finishCalibration();
+                // This hand is done — compute its calibration
+                computeHandCalibration(hand.handId);
+                advanceToNextHand();
             }
         }
     }
 
-    function finishCalibration() {
-        // Average the raw values at each calibration point
-        const avgs = calibration.samples.map(samples => {
+    function computeHandCalibration(handId) {
+        const data = calibration.results[handId];
+        if (!data || data.samples.length < CALIB_POINTS.length) return;
+
+        const avgs = data.samples.map(samples => {
             const sumX = samples.reduce((s, p) => s + p.rawX, 0);
             const sumY = samples.reduce((s, p) => s + p.rawY, 0);
             return { rawX: sumX / samples.length, rawY: sumY / samples.length };
         });
 
-        // Point 0 = center (0.5, 0.5) → gives us the origin
         const originX = avgs[0].rawX;
         const originY = avgs[0].rawY;
 
-        // Points 1 & 2 give us sensitivity
-        // screenX = (rawX - originX) * sensitivity + 0.5
-        // sensitivity = (screenX - 0.5) / (rawX - originX)
         const sensValues = [];
         for (let i = 1; i < CALIB_POINTS.length; i++) {
             const dRawX = avgs[i].rawX - originX;
@@ -355,50 +386,92 @@
         let sensitivity = sensValues.length > 0
             ? sensValues.reduce((a, b) => a + b, 0) / sensValues.length
             : 1.6;
-
-        // Clamp to reasonable range
         sensitivity = Math.max(0.8, Math.min(3.0, sensitivity));
 
-        // Apply to tracker
-        tracker.aimOriginX = originX;
-        tracker.aimOriginY = originY;
-        tracker.sensitivity = sensitivity;
-        tracker.rayExtend = CALIB_RAY_EXTEND;
+        // Apply per-hand calibration
+        const state = tracker._getHandState(handId);
+        state.calibOriginX = originX;
+        state.calibOriginY = originY;
+        state.calibSensitivity = sensitivity;
+        state.calibRayExtend = CALIB_RAY_EXTEND;
 
-        // Update the sliders to reflect new values
-        updateSlider('ctrl-sensitivity', 'val-sensitivity', sensitivity, 1);
-        updateSlider('ctrl-ray', 'val-ray', CALIB_RAY_EXTEND, 1);
-        updateSlider('ctrl-originy', 'val-originy', originY, 2);
+        data.computed = { originX, originY, sensitivity };
+    }
 
-        // Show "done" message briefly
+    function advanceToNextHand() {
+        calibration.handIdx++;
+        calibration.pointIdx = 0;
+
+        if (calibration.handIdx < CALIB_HANDS.length) {
+            showCalibStep();
+        } else {
+            finishCalibration();
+        }
+    }
+
+    function skipCurrentHand() {
+        if (!calibration) return;
+        // Clear any partial samples for this hand
+        const hand = CALIB_HANDS[calibration.handIdx];
+        delete calibration.results[hand.handId];
+        calibration.pointIdx = 0;
+        advanceToNextHand();
+    }
+
+    function finishCalibration() {
+        // Update sliders to show the last computed values (or first hand's)
+        const anyResult = Object.values(calibration.results).find(r => r.computed);
+        if (anyResult) {
+            updateSlider('ctrl-sensitivity', 'val-sensitivity', anyResult.computed.sensitivity, 1);
+            updateSlider('ctrl-ray', 'val-ray', CALIB_RAY_EXTEND, 1);
+            updateSlider('ctrl-originy', 'val-originy', anyResult.computed.originY, 2);
+        }
+
         calibInstruction.textContent = 'CALIBRATION COMPLETE!';
+        calibHandLabel.textContent = '';
         calibTarget.style.display = 'none';
+        calibSkipBtn.classList.add('hidden');
         calibBar.style.width = '100%';
+
+        const calibrated = Object.keys(calibration.results).filter(
+            id => calibration.results[id].computed
+        );
+        const handNames = calibrated.map(id =>
+            CALIB_HANDS.find(h => h.handId === id)?.userLabel || id
+        );
 
         const doneEl = document.createElement('div');
         doneEl.className = 'calib-wizard-done';
-        doneEl.textContent = 'CALIBRATION COMPLETE';
+        doneEl.textContent = handNames.length > 0
+            ? 'CALIBRATED: ' + handNames.join(' + ')
+            : 'NO HANDS CALIBRATED';
         calibWizard.appendChild(doneEl);
 
         setTimeout(() => {
-            cancelCalibration();
+            endCalibration();
             doneEl.remove();
             calibTarget.style.display = '';
         }, 1200);
     }
 
-    function cancelCalibration() {
-        if (calibration && tracker) {
-            // Only restore rayExtend if we didn't finish
-            if (calibration.samples.length < CALIB_POINTS.length) {
-                tracker.rayExtend = calibration.prevRayExtend;
-            }
-        }
+    function endCalibration() {
         calibration = null;
         calibWizard.classList.add('hidden');
-
-        // Resume game if it was paused
         if (game && game.isRunning) game.resume();
+    }
+
+    function cancelCalibration() {
+        if (calibration && tracker) {
+            // Restore any hands that weren't fully calibrated
+            for (const hand of CALIB_HANDS) {
+                const data = calibration.results[hand.handId];
+                if (!data || !data.computed) {
+                    const s = tracker._getHandState(hand.handId);
+                    s.calibRayExtend = null;
+                }
+            }
+        }
+        endCalibration();
     }
 
     function updateSlider(sliderId, valId, value, decimals) {
@@ -416,6 +489,7 @@
         document.getElementById('calib-advanced').classList.toggle('hidden');
     });
     document.getElementById('calib-wizard-cancel').addEventListener('click', cancelCalibration);
+    calibSkipBtn.addEventListener('click', skipCurrentHand);
 
     // ===== Keyboard shortcuts =====
     document.addEventListener('keydown', (e) => {

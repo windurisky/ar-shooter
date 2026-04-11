@@ -826,11 +826,31 @@ body {
     box-shadow: 0 0 12px var(--neon-cyan), 0 0 24px rgba(0, 240, 255, 0.4);
 }
 
-.calib-wizard-cancel {
+.calib-wizard-hand-label {
+    position: absolute;
+    top: 22%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-shadow: 0 0 20px currentColor;
+    z-index: 201;
+    white-space: nowrap;
+}
+
+.calib-wizard-bottom {
     position: absolute;
     bottom: 6%;
     left: 50%;
     transform: translateX(-50%);
+    display: flex;
+    gap: 1rem;
+    z-index: 201;
+}
+
+.calib-wizard-skip {
     background: none;
     border: 1px solid rgba(255, 255, 255, 0.2);
     color: rgba(255, 255, 255, 0.5);
@@ -840,7 +860,24 @@ body {
     padding: 0.5rem 1.5rem;
     border-radius: 6px;
     cursor: pointer;
-    z-index: 201;
+    transition: all 0.2s;
+}
+
+.calib-wizard-skip:hover {
+    border-color: var(--neon-yellow);
+    color: var(--neon-yellow);
+}
+
+.calib-wizard-cancel {
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.5);
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    padding: 0.5rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
     transition: all 0.2s;
 }
 
