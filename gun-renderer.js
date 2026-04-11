@@ -66,6 +66,8 @@ class GunRenderer {
             targetShow: 0,
             // Recoil
             recoilAmount: 0,
+            // Muzzle flash
+            muzzleFlashTime: 0,
             // Reload
             isReloading: false,
             reloadProgress: 0,
@@ -124,6 +126,52 @@ class GunRenderer {
         const muzzle = new THREE.Mesh(muzzleGeo, accentMat);
         muzzle.position.set(0, 0.06, -0.46);
         group.add(muzzle);
+
+        // === Muzzle flash ===
+        const flashGroup = new THREE.Group();
+        flashGroup.position.set(0, 0.06, -0.50);
+        flashGroup.name = 'muzzleFlash';
+        flashGroup.visible = false;
+
+        // Core flash glow (sphere)
+        const flashCoreMat = new THREE.MeshBasicMaterial({
+            color: 0xffffaa, transparent: true, opacity: 1.0,
+        });
+        const flashCore = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), flashCoreMat);
+        flashCore.name = 'flashCore';
+        flashGroup.add(flashCore);
+
+        // Outer flash glow (larger, more transparent)
+        const flashOuterMat = new THREE.MeshBasicMaterial({
+            color: 0xff8833, transparent: true, opacity: 0.6,
+        });
+        const flashOuter = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), flashOuterMat);
+        flashOuter.name = 'flashOuter';
+        flashGroup.add(flashOuter);
+
+        // Flash streaks (elongated along barrel axis)
+        const streakMat = new THREE.MeshBasicMaterial({
+            color: 0xffdd44, transparent: true, opacity: 0.7,
+        });
+        const streakGeo = new THREE.CylinderGeometry(0.008, 0.002, 0.15, 4);
+        for (let i = 0; i < 4; i++) {
+            const streak = new THREE.Mesh(streakGeo, streakMat.clone());
+            const angle = (Math.PI * 2 * i) / 4 + Math.PI / 4;
+            streak.rotation.x = Math.PI / 2;
+            streak.rotation.z = angle;
+            streak.position.z = -0.06;
+            streak.position.x = Math.cos(angle) * 0.015;
+            streak.position.y = Math.sin(angle) * 0.015;
+            streak.name = 'streak' + i;
+            flashGroup.add(streak);
+        }
+
+        // Point light for muzzle illumination
+        const flashLight = new THREE.PointLight(0xffaa44, 0, 0.8);
+        flashLight.name = 'flashLight';
+        flashGroup.add(flashLight);
+
+        group.add(flashGroup);
 
         // === Frame (lower body) ===
         const frameGeo = new THREE.BoxGeometry(0.10, 0.06, 0.40);
@@ -250,7 +298,10 @@ class GunRenderer {
 
     triggerRecoil(handId) {
         const state = this.guns[handId];
-        if (state) state.recoilAmount = 1.0;
+        if (state) {
+            state.recoilAmount = 1.0;
+            state.muzzleFlashTime = 1.0;
+        }
     }
 
     startReload(handId, duration) {
@@ -324,10 +375,10 @@ class GunRenderer {
         // --- Recoil ---
         let recoilY = 0, recoilZ = 0, recoilRotX = 0;
         if (state.recoilAmount > 0.01) {
-            // Sharp kick up and back, then spring back
-            recoilY = state.recoilAmount * 0.06;
+            // Sharp kick: muzzle rises (positive rotX), gun pushes back
+            recoilY = state.recoilAmount * 0.04;
             recoilZ = state.recoilAmount * 0.08;
-            recoilRotX = state.recoilAmount * -0.2;
+            recoilRotX = state.recoilAmount * 0.25;
             state.recoilAmount *= 0.82; // Fast decay
             if (state.recoilAmount < 0.01) state.recoilAmount = 0;
         }
@@ -368,6 +419,36 @@ class GunRenderer {
                 reloadRotZ = 0.05 * (1 - e4) * state.side;
                 reloadY = Math.sin(t4 * Math.PI) * 0.02;
                 magOffsetY = 0;
+            }
+        }
+
+        // --- Muzzle flash ---
+        const flash = group.getObjectByName('muzzleFlash');
+        if (flash) {
+            if (state.muzzleFlashTime > 0.01) {
+                flash.visible = true;
+                const f = state.muzzleFlashTime;
+                // Scale flash based on intensity
+                const scale = 0.5 + f * 1.5;
+                flash.scale.set(scale, scale, scale);
+                // Randomize rotation for organic look
+                flash.rotation.z = Math.random() * Math.PI * 2;
+                // Update material opacities
+                const core = flash.getObjectByName('flashCore');
+                if (core) core.material.opacity = f;
+                const outer = flash.getObjectByName('flashOuter');
+                if (outer) outer.material.opacity = f * 0.6;
+                for (let i = 0; i < 4; i++) {
+                    const streak = flash.getObjectByName('streak' + i);
+                    if (streak) streak.material.opacity = f * 0.7;
+                }
+                const light = flash.getObjectByName('flashLight');
+                if (light) light.intensity = f * 3;
+                // Rapid decay
+                state.muzzleFlashTime *= 0.65;
+                if (state.muzzleFlashTime < 0.01) state.muzzleFlashTime = 0;
+            } else {
+                flash.visible = false;
             }
         }
 
