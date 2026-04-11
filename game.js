@@ -35,12 +35,17 @@ class Game {
         return {
             crosshairX: this.width / 2,
             crosshairY: this.height / 2,
+            targetX: this.width / 2,
+            targetY: this.height / 2,
             showCrosshair: false,
             ammo: this.maxAmmo,
             isReloading: false,
             reloadTimer: null,
         };
     }
+
+    // Per-frame crosshair interpolation speed (0–1, higher = snappier)
+    static AIM_LERP = 0.25;
 
     // Crosshair colors per hand (MediaPipe "Left" = user's right hand due to mirror)
     static CROSSHAIR_COLORS = {
@@ -89,8 +94,8 @@ class Game {
     updateAim(handId, normX, normY) {
         const w = this.weapons[handId];
         if (!w) return;
-        w.crosshairX = normX * this.width;
-        w.crosshairY = normY * this.height;
+        w.targetX = normX * this.width;
+        w.targetY = normY * this.height;
         w.showCrosshair = true;
     }
     hideCrosshair(handId) {
@@ -199,6 +204,12 @@ class Game {
         this.ctx.clearRect(0, 0, this.width, this.height);
         this._drawBackground(); this._updateTargets(); this._drawTargets();
         this._updateParticles(); this._drawParticles();
+        // Smoothly interpolate crosshairs toward target every render frame
+        const lerp = Game.AIM_LERP;
+        for (const w of Object.values(this.weapons)) {
+            w.crosshairX += (w.targetX - w.crosshairX) * lerp;
+            w.crosshairY += (w.targetY - w.crosshairY) * lerp;
+        }
         // Draw crosshairs for all active weapons
         for (const [handId, w] of Object.entries(this.weapons)) {
             if (w.showCrosshair) this._drawCrosshair(handId, w);

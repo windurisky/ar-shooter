@@ -47,7 +47,8 @@ class HandTracker {
         this.shootCooldownMs = 400;
 
         // Smoothing (lower = smoother but more lag, higher = more responsive)
-        this.smoothingFactor = 0.3;
+        // Game loop applies additional per-frame interpolation, so this can be higher
+        this.smoothingFactor = 0.45;
 
         // Callbacks — all now receive handId ("Left"/"Right") as first param
         this.onAimUpdate = null;   // (handId, x, y)
