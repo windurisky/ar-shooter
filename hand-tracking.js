@@ -46,9 +46,16 @@ class HandTracker {
         this.thumbHistoryMax = 8;
         this.shootCooldownMs = 400;
 
+        // Gesture debounce: require this many consistent frames before toggling
+        this.gestureDebounceFrames = 3;
+
         // Smoothing (lower = smoother but more lag, higher = more responsive)
         // Game loop applies additional per-frame interpolation, so this can be higher
-        this.smoothingFactor = 0.45;
+        this.smoothingFactor = 0.2;
+
+        // Dead zone: ignore movements smaller than this (in normalized coords)
+        // to filter out MediaPipe landmark jitter when hand is stationary
+        this.deadZone = 0.008;
 
         // Callbacks — all now receive handId ("Left"/"Right") as first param
         this.onAimUpdate = null;   // (handId, x, y)
@@ -68,6 +75,8 @@ class HandTracker {
                 landmarks: null,
                 thumbHistory: [],
                 shootCooldown: false,
+                // Gesture debounce: require N consistent frames before changing state
+                gestureFrameCount: 0,
             };
         }
         return this.handState[handId];
@@ -121,11 +130,18 @@ class HandTracker {
                 const state = this._getHandState(label);
                 state.landmarks = landmarks;
 
-                const wasPistol = state.isPistolGesture;
-                state.isPistolGesture = this._detectPistolGesture(landmarks);
+                const rawPistol = this._detectPistolGesture(landmarks, state.isPistolGesture);
 
-                if (state.isPistolGesture !== wasPistol) {
-                    if (this.onGestureChange) this.onGestureChange(label, state.isPistolGesture);
+                // Debounce: require consistent frames before toggling gesture state
+                if (rawPistol !== state.isPistolGesture) {
+                    state.gestureFrameCount++;
+                    if (state.gestureFrameCount >= this.gestureDebounceFrames) {
+                        state.isPistolGesture = rawPistol;
+                        state.gestureFrameCount = 0;
+                        if (this.onGestureChange) this.onGestureChange(label, rawPistol);
+                    }
+                } else {
+                    state.gestureFrameCount = 0;
                 }
 
                 if (state.isPistolGesture) {
@@ -161,25 +177,36 @@ class HandTracker {
         state.aimX = Math.max(0, Math.min(1, state.aimX));
         state.aimY = Math.max(0, Math.min(1, state.aimY));
 
-        state.smoothAimX += (state.aimX - state.smoothAimX) * this.smoothingFactor;
-        state.smoothAimY += (state.aimY - state.smoothAimY) * this.smoothingFactor;
+        // Dead zone: skip smoothing update if movement is tiny (hand jitter)
+        const diffX = state.aimX - state.smoothAimX;
+        const diffY = state.aimY - state.smoothAimY;
+        if (Math.abs(diffX) > this.deadZone || Math.abs(diffY) > this.deadZone) {
+            state.smoothAimX += diffX * this.smoothingFactor;
+            state.smoothAimY += diffY * this.smoothingFactor;
+        }
 
         if (this.onAimUpdate) {
             this.onAimUpdate(handId, state.smoothAimX, state.smoothAimY);
         }
     }
 
-    _detectPistolGesture(lm) {
-        const indexExtended = this._isFingerExtended(lm, 5, 6, 7, 8);
-        const middleCurled = !this._isFingerExtended(lm, 9, 10, 11, 12);
-        const ringCurled = !this._isFingerExtended(lm, 13, 14, 15, 16);
-        const pinkyCurled = !this._isFingerExtended(lm, 17, 18, 19, 20);
-        const thumbUp = this._isThumbExtended(lm);
+    _detectPistolGesture(lm, currentlyActive) {
+        // Hysteresis: use looser thresholds when already in pistol state
+        // to prevent flickering at the boundary
+        const extendThreshold = currentlyActive ? 1.05 : 1.2;
+        const curlThreshold = currentlyActive ? 1.3 : 1.2;
+        const thumbThreshold = currentlyActive ? 0.75 : 0.9;
+
+        const indexExtended = this._isFingerExtended(lm, 5, 6, 7, 8, extendThreshold);
+        const middleCurled = !this._isFingerExtended(lm, 9, 10, 11, 12, curlThreshold);
+        const ringCurled = !this._isFingerExtended(lm, 13, 14, 15, 16, curlThreshold);
+        const pinkyCurled = !this._isFingerExtended(lm, 17, 18, 19, 20, curlThreshold);
+        const thumbUp = this._isThumbExtended(lm, thumbThreshold);
 
         return indexExtended && middleCurled && ringCurled && pinkyCurled && thumbUp;
     }
 
-    _isFingerExtended(lm, mcpIdx, pipIdx, dipIdx, tipIdx) {
+    _isFingerExtended(lm, mcpIdx, pipIdx, dipIdx, tipIdx, threshold) {
         const mcp = lm[mcpIdx];
         const pip = lm[pipIdx];
         const tip = lm[tipIdx];
@@ -187,10 +214,10 @@ class HandTracker {
         const tipDist = this._dist3D(tip, mcp);
         const pipDist = this._dist3D(pip, mcp);
 
-        return tipDist > pipDist * 1.2;
+        return tipDist > pipDist * threshold;
     }
 
-    _isThumbExtended(lm) {
+    _isThumbExtended(lm, threshold) {
         const thumbTip = lm[4];
         const thumbIP = lm[3];
         const thumbMCP = lm[2];
@@ -198,7 +225,7 @@ class HandTracker {
         const tipDist = this._dist3D(thumbTip, thumbMCP);
         const ipDist = this._dist3D(thumbIP, thumbMCP);
 
-        return tipDist > ipDist * 0.9;
+        return tipDist > ipDist * threshold;
     }
 
     _dist3D(a, b) {
