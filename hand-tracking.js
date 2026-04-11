@@ -227,12 +227,14 @@ class HandTracker {
             state.thumbHistory.shift();
         }
 
-        if (state.thumbHistory.length >= 3) {
-            const recent = state.thumbHistory.slice(-3);
-            const dy = recent[2].y - recent[0].y;
-            const dt = recent[2].time - recent[0].time;
+        if (state.thumbHistory.length >= 4) {
+            const recent = state.thumbHistory.slice(-4);
+            const dy = recent[3].y - recent[0].y;
+            const dt = recent[3].time - recent[0].time;
 
-            if (dy > 0.03 && dt < 300) {
+            // Require consistent downward motion across samples (not just endpoints)
+            const midDy = recent[2].y - recent[1].y;
+            if (dy > 0.05 && midDy > 0 && dt < 300) {
                 this._triggerShoot(handId, state);
             }
         }

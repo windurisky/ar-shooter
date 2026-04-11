@@ -35,8 +35,11 @@
         Right: document.getElementById('gesture-dot-Right'),
     };
 
+    const gunCanvasEl = document.getElementById('gun-canvas');
     let tracker = null;
     let game = null;
+    let gunRenderer = null;
+    let mouseGunShown = false;
     const reloadAnimIds = { Left: null, Right: null };
 
     // Track per-hand gesture state for status text
@@ -50,6 +53,7 @@
         try {
             tracker = new HandTracker();
             game = new Game(canvasEl);
+            gunRenderer = new GunRenderer(gunCanvasEl);
             wireCallbacks();
             await tracker.init(videoEl);
 
@@ -77,15 +81,28 @@
         comboValue.textContent = 'x1';
         gestureState.Left = false;
         gestureState.Right = false;
+        mouseGunShown = false;
         updateGestureStatus();
     });
 
     // ===== Wire callbacks =====
     function wireCallbacks() {
-        tracker.onAimUpdate = (handId, x, y) => game.updateAim(handId, x, y);
-        tracker.onShoot = (handId) => game.shoot(handId);
+        tracker.onAimUpdate = (handId, x, y) => {
+            game.updateAim(handId, x, y);
+            if (gunRenderer) gunRenderer.updateAim(handId, x, y);
+        };
+        tracker.onShoot = (handId) => {
+            game.shoot(handId);
+            if (gunRenderer) gunRenderer.triggerRecoil(handId);
+        };
         tracker.onGestureChange = (handId, isPistol) => {
             gestureState[handId] = isPistol;
+
+            // Show/hide 3D gun based on gesture
+            if (gunRenderer) {
+                if (isPistol) gunRenderer.show(handId);
+                else gunRenderer.hide(handId);
+            }
 
             // Update per-hand dot
             const dot = gestureDots[handId];
@@ -118,6 +135,7 @@
         };
         game.onAmmoUpdate = (handId, current, max) => updateAmmoUI(handId, current, max);
         game.onReloadStart = (handId, duration) => {
+            if (gunRenderer) gunRenderer.startReload(handId, duration);
             const indicator = reloadEls[handId];
             if (!indicator) return;
             indicator.classList.remove('hidden');
@@ -132,12 +150,18 @@
             animReload();
         };
         game.onReloadEnd = (handId) => {
+            if (gunRenderer) gunRenderer.endReload(handId);
             const indicator = reloadEls[handId];
             if (!indicator) return;
             indicator.classList.add('hidden');
             if (reloadAnimIds[handId]) cancelAnimationFrame(reloadAnimIds[handId]);
         };
         game.onGameOver = (stats) => {
+            // Hide all guns on game over
+            if (gunRenderer) {
+                gunRenderer.hide('Left');
+                gunRenderer.hide('Right');
+            }
             hud.classList.add('hidden');
             gameoverScreen.classList.remove('hidden');
             finalScore.textContent = stats.score;
@@ -188,6 +212,10 @@
             // Space shoots both weapons
             game.shoot('Left');
             game.shoot('Right');
+            if (gunRenderer) {
+                gunRenderer.triggerRecoil('Left');
+                gunRenderer.triggerRecoil('Right');
+            }
         }
         if (e.code === 'KeyR') {
             // R reloads both weapons
@@ -214,10 +242,17 @@
     // ===== Mouse fallback for testing (move = aim, click = shoot) =====
     canvasEl.addEventListener('mousemove', (e) => {
         if (!game || !game.isRunning) return;
-        game.updateAim('Right', e.clientX / window.innerWidth, e.clientY / window.innerHeight);
+        const nx = e.clientX / window.innerWidth;
+        const ny = e.clientY / window.innerHeight;
+        game.updateAim('Right', nx, ny);
+        if (gunRenderer) {
+            if (!mouseGunShown) { gunRenderer.show('Right'); mouseGunShown = true; }
+            gunRenderer.updateAim('Right', nx, ny);
+        }
     });
     canvasEl.addEventListener('click', (e) => {
         if (!game || !game.isRunning) return;
         game.shoot('Right');
+        if (gunRenderer) gunRenderer.triggerRecoil('Right');
     });
 })();
