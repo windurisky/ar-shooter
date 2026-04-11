@@ -42,6 +42,22 @@
     let mouseGunShown = false;
     const reloadAnimIds = { Left: null, Right: null };
 
+    // ===== Audio =====
+    const bgm = new Audio('assets/audio/bgm.mp3');
+    bgm.loop = true;
+    bgm.volume = 0.4;
+
+    const sfxShot = new Audio('assets/audio/gun-shot.mp3');
+    sfxShot.volume = 0.6;
+    const sfxReload = new Audio('assets/audio/gun-reload.mp3');
+    sfxReload.volume = 0.6;
+
+    function playSFX(source) {
+        const clone = source.cloneNode();
+        clone.volume = source.volume;
+        clone.play();
+    }
+
     // Track per-hand gesture state for status text
     const gestureState = { Left: false, Right: false };
 
@@ -51,6 +67,7 @@
         startBtn.disabled = true;
 
         try {
+            bgm.play().catch(() => {});
             tracker = new HandTracker();
             game = new Game(canvasEl);
             gunRenderer = new GunRenderer(gunCanvasEl);
@@ -94,6 +111,7 @@
         tracker.onShoot = (handId) => {
             game.shoot(handId);
             if (gunRenderer) gunRenderer.triggerRecoil(handId);
+            playSFX(sfxShot);
         };
         tracker.onGestureChange = (handId, isPistol) => {
             gestureState[handId] = isPistol;
@@ -136,6 +154,7 @@
         game.onAmmoUpdate = (handId, current, max) => updateAmmoUI(handId, current, max);
         game.onReloadStart = (handId, duration) => {
             if (gunRenderer) gunRenderer.startReload(handId, duration);
+            playSFX(sfxReload);
             const indicator = reloadEls[handId];
             if (!indicator) return;
             indicator.classList.remove('hidden');
@@ -212,6 +231,8 @@
             // Space shoots both weapons
             game.shoot('Left');
             game.shoot('Right');
+            playSFX(sfxShot);
+            playSFX(sfxShot);
             if (gunRenderer) {
                 gunRenderer.triggerRecoil('Left');
                 gunRenderer.triggerRecoil('Right');
@@ -254,5 +275,6 @@
         if (!game || !game.isRunning) return;
         game.shoot('Right');
         if (gunRenderer) gunRenderer.triggerRecoil('Right');
+        playSFX(sfxShot);
     });
 })();
