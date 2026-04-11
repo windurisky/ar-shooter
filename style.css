@@ -668,3 +668,204 @@ body {
     margin-top: 0.25rem;
     line-height: 1.3;
 }
+
+/* ===== Auto-Calibrate Button ===== */
+.calib-auto-btn {
+    width: 100%;
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #fff;
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 255, 136, 0.2));
+    border: 1px solid var(--neon-green);
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    pointer-events: all;
+}
+
+.calib-auto-btn:hover {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.35), rgba(0, 255, 136, 0.35));
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.4);
+}
+
+.calib-auto-desc {
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.4);
+    text-align: center;
+    margin-top: 0.4rem;
+    line-height: 1.3;
+}
+
+.calib-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.9rem 0;
+}
+
+.calib-advanced-toggle {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: var(--font-display);
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    padding: 0.3rem 0;
+    width: 100%;
+    text-align: left;
+    pointer-events: all;
+    transition: color 0.2s;
+}
+
+.calib-advanced-toggle:hover {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.calib-advanced {
+    margin-top: 0.6rem;
+}
+
+/* ===== Calibration Wizard Overlay ===== */
+.calib-wizard {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 200;
+    background: rgba(5, 5, 20, 0.85);
+    backdrop-filter: blur(4px);
+}
+
+.calib-wizard.hidden {
+    display: none;
+}
+
+.calib-wizard-header {
+    position: absolute;
+    top: 8%;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    z-index: 201;
+}
+
+.calib-wizard-step {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    color: var(--neon-cyan);
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+    margin-bottom: 0.6rem;
+}
+
+.calib-wizard-instruction {
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    color: rgba(255, 255, 255, 0.85);
+    margin-bottom: 1.2rem;
+    max-width: 400px;
+}
+
+.calib-wizard-progress-track {
+    width: 200px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    margin: 0 auto;
+    overflow: hidden;
+}
+
+.calib-wizard-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
+    border-radius: 3px;
+    transition: width 0.1s linear;
+    box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+}
+
+/* Calibration target */
+.calib-wizard-target {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    z-index: 201;
+}
+
+.calib-target-ring {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 2px solid var(--neon-cyan);
+    border-radius: 50%;
+    animation: calib-ring-pulse 1.2s ease-in-out infinite;
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.4), inset 0 0 15px rgba(0, 240, 255, 0.1);
+}
+
+@keyframes calib-ring-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: 0.5; }
+}
+
+.calib-target-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    transform: translate(-50%, -50%);
+    background: var(--neon-cyan);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--neon-cyan), 0 0 24px rgba(0, 240, 255, 0.4);
+}
+
+.calib-wizard-cancel {
+    position: absolute;
+    bottom: 6%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.5);
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    padding: 0.5rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    z-index: 201;
+    transition: all 0.2s;
+}
+
+.calib-wizard-cancel:hover {
+    border-color: var(--neon-red);
+    color: var(--neon-red);
+}
+
+/* Calibration complete flash */
+.calib-wizard-done {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--neon-green);
+    text-shadow: 0 0 20px var(--neon-green), 0 0 40px rgba(0, 255, 136, 0.4);
+    letter-spacing: 0.15em;
+    z-index: 202;
+    animation: calib-done-pop 0.4s ease-out;
+}
+
+@keyframes calib-done-pop {
+    0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}

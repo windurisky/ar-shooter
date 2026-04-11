@@ -75,8 +75,29 @@ class Game extends EventEmitter {
         this._animFrameId = requestAnimationFrame(this._gameLoop);
     }
 
+    pause() {
+        if (!this.isRunning) return;
+        this.isPaused = true;
+        clearInterval(this.timerInterval);
+        if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
+        if (this._targetTimeout) clearTimeout(this._targetTimeout);
+    }
+
+    resume() {
+        if (!this.isRunning || !this.isPaused) return;
+        this.isPaused = false;
+        this.timerInterval = setInterval(() => {
+            this.timeLeft--;
+            this.emit('time', this.timeLeft);
+            if (this.timeLeft <= 0) this.stop();
+        }, 1000);
+        this._scheduleNextTarget();
+        this._animFrameId = requestAnimationFrame(this._gameLoop);
+    }
+
     stop() {
         this.isRunning = false;
+        this.isPaused = false;
         clearInterval(this.timerInterval);
         if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
         if (this._targetTimeout) clearTimeout(this._targetTimeout);

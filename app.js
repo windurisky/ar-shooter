@@ -121,10 +121,16 @@
     // ===== Wire callbacks =====
     function wireCallbacks() {
         tracker.onAimUpdate = (handId, x, y) => {
+            // Feed calibration wizard if active
+            if (calibration) {
+                collectCalibSample(handId);
+                return; // don't update game aim during calibration
+            }
             game.updateAim(handId, x, y);
             if (gunRenderer) gunRenderer.updateAim(handId, x, y);
         };
         tracker.onShoot = (handId) => {
+            if (calibration) return; // suppress shooting during calibration
             const w = game.weapons[handId];
             if (w && w.isReloading) return;
             game.shoot(handId);
@@ -242,14 +248,188 @@
         }
     }
 
+    // ===== Calibration Wizard =====
+    const calibWizard = document.getElementById('calib-wizard');
+    const calibTarget = document.getElementById('calib-wizard-target');
+    const calibStepNum = document.getElementById('calib-step-num');
+    const calibInstruction = document.getElementById('calib-wizard-instruction');
+    const calibBar = document.getElementById('calib-wizard-bar');
+
+    let calibration = null; // null = not calibrating
+
+    const CALIB_POINTS = [
+        { sx: 0.5, sy: 0.5, label: 'the CENTER of the screen' },
+        { sx: 0.15, sy: 0.15, label: 'the TOP-LEFT target' },
+        { sx: 0.85, sy: 0.85, label: 'the BOTTOM-RIGHT target' },
+    ];
+    const CALIB_FRAMES_NEEDED = 50; // ~1.7s at 30fps
+    const CALIB_RAY_EXTEND = 1.5;
+
+    function startCalibration() {
+        // Hide calib panel
+        document.getElementById('calib-panel').classList.add('hidden');
+
+        // Pause game if running
+        if (game && game.isRunning) game.pause();
+
+        // Set a fixed rayExtend for calibration
+        const prevRayExtend = tracker ? tracker.rayExtend : 1.8;
+        if (tracker) tracker.rayExtend = CALIB_RAY_EXTEND;
+
+        calibration = {
+            step: 0,
+            samples: [],          // collected per-point: [{ rawX, rawY }[], ...]
+            currentSamples: [],
+            prevRayExtend: prevRayExtend,
+        };
+
+        calibWizard.classList.remove('hidden');
+        showCalibStep(0);
+    }
+
+    function showCalibStep(idx) {
+        const pt = CALIB_POINTS[idx];
+        calibStepNum.textContent = idx + 1;
+        calibInstruction.textContent = 'Point at ' + pt.label;
+        calibTarget.style.left = (pt.sx * 100) + '%';
+        calibTarget.style.top = (pt.sy * 100) + '%';
+        calibBar.style.width = '0%';
+        calibration.step = idx;
+        calibration.currentSamples = [];
+    }
+
+    function collectCalibSample(handId) {
+        if (!calibration || !tracker) return;
+
+        // Read raw aim from any hand that has pistol gesture
+        const state = tracker.handState[handId];
+        if (!state || !state.isPistolGesture) return;
+
+        calibration.currentSamples.push({
+            rawX: state.rawAimX,
+            rawY: state.rawAimY,
+        });
+
+        // Update progress bar
+        const pct = Math.min((calibration.currentSamples.length / CALIB_FRAMES_NEEDED) * 100, 100);
+        calibBar.style.width = pct + '%';
+
+        // Check if this step is done
+        if (calibration.currentSamples.length >= CALIB_FRAMES_NEEDED) {
+            calibration.samples.push(calibration.currentSamples.slice());
+            const nextStep = calibration.step + 1;
+
+            if (nextStep < CALIB_POINTS.length) {
+                showCalibStep(nextStep);
+            } else {
+                finishCalibration();
+            }
+        }
+    }
+
+    function finishCalibration() {
+        // Average the raw values at each calibration point
+        const avgs = calibration.samples.map(samples => {
+            const sumX = samples.reduce((s, p) => s + p.rawX, 0);
+            const sumY = samples.reduce((s, p) => s + p.rawY, 0);
+            return { rawX: sumX / samples.length, rawY: sumY / samples.length };
+        });
+
+        // Point 0 = center (0.5, 0.5) → gives us the origin
+        const originX = avgs[0].rawX;
+        const originY = avgs[0].rawY;
+
+        // Points 1 & 2 give us sensitivity
+        // screenX = (rawX - originX) * sensitivity + 0.5
+        // sensitivity = (screenX - 0.5) / (rawX - originX)
+        const sensValues = [];
+        for (let i = 1; i < CALIB_POINTS.length; i++) {
+            const dRawX = avgs[i].rawX - originX;
+            const dRawY = avgs[i].rawY - originY;
+            const dScreenX = CALIB_POINTS[i].sx - 0.5;
+            const dScreenY = CALIB_POINTS[i].sy - 0.5;
+            if (Math.abs(dRawX) > 0.01) sensValues.push(dScreenX / dRawX);
+            if (Math.abs(dRawY) > 0.01) sensValues.push(dScreenY / dRawY);
+        }
+
+        let sensitivity = sensValues.length > 0
+            ? sensValues.reduce((a, b) => a + b, 0) / sensValues.length
+            : 1.6;
+
+        // Clamp to reasonable range
+        sensitivity = Math.max(0.8, Math.min(3.0, sensitivity));
+
+        // Apply to tracker
+        tracker.aimOriginX = originX;
+        tracker.aimOriginY = originY;
+        tracker.sensitivity = sensitivity;
+        tracker.rayExtend = CALIB_RAY_EXTEND;
+
+        // Update the sliders to reflect new values
+        updateSlider('ctrl-sensitivity', 'val-sensitivity', sensitivity, 1);
+        updateSlider('ctrl-ray', 'val-ray', CALIB_RAY_EXTEND, 1);
+        updateSlider('ctrl-originy', 'val-originy', originY, 2);
+
+        // Show "done" message briefly
+        calibInstruction.textContent = 'CALIBRATION COMPLETE!';
+        calibTarget.style.display = 'none';
+        calibBar.style.width = '100%';
+
+        const doneEl = document.createElement('div');
+        doneEl.className = 'calib-wizard-done';
+        doneEl.textContent = 'CALIBRATION COMPLETE';
+        calibWizard.appendChild(doneEl);
+
+        setTimeout(() => {
+            cancelCalibration();
+            doneEl.remove();
+            calibTarget.style.display = '';
+        }, 1200);
+    }
+
+    function cancelCalibration() {
+        if (calibration && tracker) {
+            // Only restore rayExtend if we didn't finish
+            if (calibration.samples.length < CALIB_POINTS.length) {
+                tracker.rayExtend = calibration.prevRayExtend;
+            }
+        }
+        calibration = null;
+        calibWizard.classList.add('hidden');
+
+        // Resume game if it was paused
+        if (game && game.isRunning) game.resume();
+    }
+
+    function updateSlider(sliderId, valId, value, decimals) {
+        const slider = document.getElementById(sliderId);
+        const valEl = document.getElementById(valId);
+        if (slider) slider.value = value;
+        if (valEl) valEl.textContent = value.toFixed(decimals);
+    }
+
+    // Wire up calib panel buttons
+    document.getElementById('calib-auto-btn').addEventListener('click', () => {
+        if (tracker) startCalibration();
+    });
+    document.getElementById('calib-advanced-toggle').addEventListener('click', () => {
+        document.getElementById('calib-advanced').classList.toggle('hidden');
+    });
+    document.getElementById('calib-wizard-cancel').addEventListener('click', cancelCalibration);
+
     // ===== Keyboard shortcuts =====
     document.addEventListener('keydown', (e) => {
+        // ESC cancels calibration wizard
+        if (e.code === 'Escape' && calibration) {
+            cancelCalibration();
+            return;
+        }
         // C key toggles calibration panel
-        if (e.code === 'KeyC' && hud && !hud.classList.contains('hidden')) {
+        if (e.code === 'KeyC' && hud && !hud.classList.contains('hidden') && !calibration) {
             document.getElementById('calib-panel').classList.toggle('hidden');
             return;
         }
-        if (!game || !game.isRunning) return;
+        if (!game || !game.isRunning || game.isPaused) return;
         if (e.code === 'Space') {
             e.preventDefault();
             // Space shoots both weapons

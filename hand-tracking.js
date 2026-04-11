@@ -72,6 +72,8 @@ class HandTracker {
                 aimY: 0.5,
                 smoothAimX: 0.5,
                 smoothAimY: 0.5,
+                rawAimX: 0.5,
+                rawAimY: 0.5,
                 landmarks: null,
                 thumbHistory: [],
                 shootCooldown: false,
@@ -170,6 +172,10 @@ class HandTracker {
         // Mirror X since camera is horizontally flipped
         const rawX = 1.0 - (tip.x + dx * this.rayExtend);
         const rawY = tip.y + dy * this.rayExtend;
+
+        // Store raw values for calibration
+        state.rawAimX = rawX;
+        state.rawAimY = rawY;
 
         state.aimX = (rawX - this.aimOriginX) * this.sensitivity + 0.5;
         state.aimY = (rawY - this.aimOriginY) * this.sensitivity + 0.5;
