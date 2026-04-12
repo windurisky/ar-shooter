@@ -36,11 +36,13 @@
     };
 
     const gunCanvasEl = document.getElementById('gun-canvas');
+    const rangeCanvasEl = document.getElementById('range-canvas');
     const cameraPreviewEl = document.getElementById('camera-preview');
     const handOverlayEl = document.getElementById('hand-overlay');
     let tracker = null;
     let game = null;
     let gunRenderer = null;
+    let rangeRenderer = null;
     let mouseGunShown = false;
     const reloadAnimIds = { Left: null, Right: null };
 
@@ -86,7 +88,8 @@
 
         try {
             tracker = new HandTracker();
-            game = new Game(canvasEl);
+            rangeRenderer = new RangeRenderer(rangeCanvasEl);
+            game = new Game(canvasEl, rangeRenderer);
             gunRenderer = new GunRenderer(gunCanvasEl);
             wireCallbacks();
             await tracker.init(videoEl);
@@ -203,12 +206,17 @@
             indicator.classList.add('hidden');
             if (reloadAnimIds[handId]) cancelAnimationFrame(reloadAnimIds[handId]);
         });
-        game.on('hit', (x, y, text, isMiss) => {
+        game.on('hit', (x, y, text, type) => {
             const el = document.createElement('div');
-            el.className = 'hit-marker' + (isMiss ? ' miss' : '');
-            el.textContent = text; el.style.left = x + 'px'; el.style.top = y + 'px';
+            let cls = 'hit-marker';
+            if (type === true || type === 'miss')    cls += ' miss';
+            if (type === 'penalty')                  cls += ' penalty';
+            el.className = cls;
+            el.textContent = text;
+            el.style.left = x + 'px';
+            el.style.top  = y + 'px';
             document.getElementById('hit-markers').appendChild(el);
-            setTimeout(() => el.remove(), 800);
+            setTimeout(() => el.remove(), 900);
         });
         game.on('gameOver', (stats) => {
             if (gunRenderer) {

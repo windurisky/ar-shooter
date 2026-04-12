@@ -1,6 +1,6 @@
 /**
- * Renderer — All 2D canvas drawing: background, targets, crosshairs,
- * particles, muzzle flash, and scan-line overlay.
+ * Renderer — 2D canvas drawing: crosshairs, particles, muzzle flash, scan-line overlay.
+ * Background and target rendering are handled by RangeRenderer (Three.js) on #range-canvas.
  */
 class Renderer {
     // Crosshair colors per hand (MediaPipe "Left" = user's right hand due to mirror)
@@ -15,15 +15,9 @@ class Renderer {
         this.width = 0;
         this.height = 0;
 
-        // Background stars
-        this.bgStars = [];
-        this._initBgStars();
-
-        // Offscreen canvases for static overlays
+        // Offscreen canvas for scan-line overlay
         this._scanLineCanvas = document.createElement('canvas');
         this._scanLineCtx = this._scanLineCanvas.getContext('2d');
-        this._bgGradientCanvas = document.createElement('canvas');
-        this._bgGradientCtx = this._bgGradientCanvas.getContext('2d');
 
         this.resize();
     }
@@ -42,70 +36,14 @@ class Renderer {
 
     // --- Background ---
 
-    drawBackground(now) {
-        this.ctx.drawImage(this._bgGradientCanvas, 0, 0);
-
-        // Animated grid
-        this.ctx.save();
-        this.ctx.globalAlpha = 0.08;
-        this.ctx.strokeStyle = '#00f0ff';
-        this.ctx.lineWidth = 0.5;
-        const gridSize = 60;
-        const offsetY = (now * 0.02) % gridSize;
-        for (let x = 0; x < this.width; x += gridSize) {
-            this.ctx.beginPath(); this.ctx.moveTo(x, 0); this.ctx.lineTo(x, this.height); this.ctx.stroke();
-        }
-        for (let y = -gridSize + offsetY; y < this.height + gridSize; y += gridSize) {
-            this.ctx.beginPath(); this.ctx.moveTo(0, y); this.ctx.lineTo(this.width, y); this.ctx.stroke();
-        }
-        this.ctx.restore();
-
-        // Stars
-        this.bgStars.forEach(s => {
-            const twinkle = Math.sin(now * s.speed * 0.01 + s.x) * 0.3 + 0.7;
-            this.ctx.save();
-            this.ctx.globalAlpha = s.alpha * twinkle;
-            this.ctx.fillStyle = '#fff';
-            this.ctx.beginPath();
-            this.ctx.arc(s.x % this.width, s.y % this.height, s.size, 0, Math.PI * 2);
-            this.ctx.fill();
-            this.ctx.restore();
-        });
-
-        // Nebula orbs
-        const drawOrb = (cx, cy, r, color) => {
-            const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-            g.addColorStop(0, color); g.addColorStop(1, 'transparent');
-            this.ctx.fillStyle = g; this.ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-        };
-        this.ctx.save();
-        this.ctx.globalAlpha = 0.04;
-        drawOrb(this.width * 0.2, this.height * 0.3, 300, '#00f0ff');
-        drawOrb(this.width * 0.8, this.height * 0.7, 250, '#ff00e5');
-        drawOrb(this.width * 0.5 + Math.sin(now * 0.0005) * 100, this.height * 0.5, 200, '#aa33ff');
-        this.ctx.restore();
-    }
+    // Background is now rendered by RangeRenderer (Three.js) on #range-canvas.
+    // This method is kept as a no-op so call sites don't need to change.
+    drawBackground(now) {}
 
     // --- Targets ---
 
-    drawTargets(targets, now) {
-        targets.forEach(t => {
-            const pulse = Math.sin(now * 0.005 + t.pulsePhase) * 0.2 + 1;
-            const age = (now - t.born) / t.lifetime;
-            const fade = age > 0.8 ? 1 - ((age - 0.8) / 0.2) : 1;
-            const r = t.radius * pulse;
-            this.ctx.save();
-            this.ctx.globalAlpha = fade;
-            this.ctx.translate(t.x, t.y);
-            if (t.type === 'diamond') {
-                this.ctx.rotate(Math.PI / 4 + now * 0.001);
-                this._drawDiamond(r, t);
-            } else {
-                this._drawCircle(r, t);
-            }
-            this.ctx.restore();
-        });
-    }
+    // Targets are now rendered by RangeRenderer (Three.js) on #range-canvas.
+    drawTargets(targets, now) {}
 
     // --- Crosshairs ---
 
@@ -165,18 +103,6 @@ class Renderer {
 
     // --- Private helpers ---
 
-    _initBgStars() {
-        this.bgStars = [];
-        for (let i = 0; i < 80; i++) {
-            this.bgStars.push({
-                x: Math.random() * 2000, y: Math.random() * 2000,
-                size: 0.5 + Math.random() * 1.5,
-                speed: 0.1 + Math.random() * 0.3,
-                alpha: 0.2 + Math.random() * 0.6
-            });
-        }
-    }
-
     _rebuildOffscreenCanvases() {
         // Scan lines + vignette
         this._scanLineCanvas.width = this.width;
@@ -197,50 +123,6 @@ class Renderer {
         v.addColorStop(1, 'rgba(0,0,0,0.4)');
         slCtx.fillStyle = v;
         slCtx.fillRect(0, 0, this.width, this.height);
-
-        // Background gradient
-        this._bgGradientCanvas.width = this.width;
-        this._bgGradientCanvas.height = this.height;
-        const bgCtx = this._bgGradientCtx;
-        const bg = bgCtx.createLinearGradient(0, 0, 0, this.height);
-        bg.addColorStop(0, '#05051a');
-        bg.addColorStop(0.5, '#0a0a2e');
-        bg.addColorStop(1, '#0d0520');
-        bgCtx.fillStyle = bg;
-        bgCtx.fillRect(0, 0, this.width, this.height);
-    }
-
-    _drawCircle(r, t) {
-        const g = this.ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, r * 2);
-        g.addColorStop(0, t.glowColor); g.addColorStop(1, 'transparent');
-        this.ctx.fillStyle = g; this.ctx.fillRect(-r * 2, -r * 2, r * 4, r * 4);
-        this.ctx.beginPath(); this.ctx.arc(0, 0, r, 0, Math.PI * 2);
-        this.ctx.strokeStyle = t.color; this.ctx.lineWidth = 3; this.ctx.stroke();
-        this.ctx.beginPath(); this.ctx.arc(0, 0, r * 0.6, 0, Math.PI * 2);
-        this.ctx.lineWidth = 2; this.ctx.stroke();
-        this.ctx.beginPath(); this.ctx.arc(0, 0, 4, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#fff'; this.ctx.fill();
-        [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach(a => {
-            this.ctx.beginPath();
-            this.ctx.moveTo(Math.cos(a) * r * 0.7, Math.sin(a) * r * 0.7);
-            this.ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-            this.ctx.strokeStyle = t.color; this.ctx.lineWidth = 1.5; this.ctx.stroke();
-        });
-    }
-
-    _drawDiamond(r, t) {
-        const g = this.ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 1.8);
-        g.addColorStop(0, t.glowColor); g.addColorStop(1, 'transparent');
-        this.ctx.fillStyle = g; this.ctx.fillRect(-r * 2, -r * 2, r * 4, r * 4);
-        this.ctx.beginPath(); this.ctx.moveTo(0, -r); this.ctx.lineTo(r, 0);
-        this.ctx.lineTo(0, r); this.ctx.lineTo(-r, 0); this.ctx.closePath();
-        this.ctx.strokeStyle = t.color; this.ctx.lineWidth = 3; this.ctx.stroke();
-        const ir = r * 0.5;
-        this.ctx.beginPath(); this.ctx.moveTo(0, -ir); this.ctx.lineTo(ir, 0);
-        this.ctx.lineTo(0, ir); this.ctx.lineTo(-ir, 0); this.ctx.closePath();
-        this.ctx.lineWidth = 2; this.ctx.stroke();
-        this.ctx.beginPath(); this.ctx.arc(0, 0, 3, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#fff'; this.ctx.fill();
     }
 
     _drawCrosshair(handId, w, now) {
