@@ -11,7 +11,7 @@ class Game extends EventEmitter {
     static AIM_LERP = 0.25;
 
     // Max concurrent targets per lane (index matches RangeRenderer.LANES order)
-    static MAX_PER_LANE = [2, 2, 2];
+    static MAX_PER_LANE = [1, 1, 1];
 
     constructor(canvas, rangeRenderer) {
         super();

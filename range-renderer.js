@@ -42,9 +42,19 @@ class RangeRenderer {
 
         this.threeRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
         this.threeRenderer.setSize(this.width, this.height);
-        this.threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         this.threeRenderer.setClearColor(0x000000, 0);
         this.threeRenderer.shadowMap.enabled = false;
+        this.threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.threeRenderer.toneMappingExposure = 1.15;
+
+        // PBR texture sets (floor/wall/plank) — loaded sync, maps stream in as decoded
+        this.pbr = {
+            floor: this._loadPBRSet('assets/textures/floor/', [3, 10], { metal: true, ao: true }),
+            wall:  this._loadPBRSet('assets/textures/wall/',  [6, 2],  { metal: false, ao: true }),
+            plank: this._loadPBRSet('assets/textures/plank/', [1, 1],  { metal: true, ao: false }),
+        };
 
         // Camera shake state
         this._shake = { x: 0, y: 0, decay: 0 };
@@ -226,68 +236,22 @@ class RangeRenderer {
     }
 
     _buildFloor() {
-        // Rich floor texture: dark gradient + grid + vertical reflection streaks
-        const W = 1024, H = 1024;
-        const c = document.createElement('canvas');
-        c.width = W; c.height = H;
-        const ctx = c.getContext('2d');
-
-        // Base gradient — deep purple toward center, darker at edges
-        const g = ctx.createLinearGradient(0, 0, W, 0);
-        g.addColorStop(0, '#0a0518');
-        g.addColorStop(0.5, '#1a0d38');
-        g.addColorStop(1, '#0a0518');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, W, H);
-
-        // Vertical neon "reflection streaks" — soft bright columns matching wall strip positions
-        const streaks = [
-            { x: 0.05, col: 'rgba(255, 0, 229, 0.55)' },   // far-left magenta
-            { x: 0.18, col: 'rgba(0, 240, 255, 0.35)' },
-            { x: 0.82, col: 'rgba(0, 240, 255, 0.35)' },
-            { x: 0.95, col: 'rgba(255, 0, 229, 0.55)' },   // far-right magenta
-            { x: 0.50, col: 'rgba(150, 100, 255, 0.20)' }, // center wash
-        ];
-        for (const s of streaks) {
-            const grad = ctx.createLinearGradient(s.x * W - 60, 0, s.x * W + 60, 0);
-            grad.addColorStop(0, 'rgba(0,0,0,0)');
-            grad.addColorStop(0.5, s.col);
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(s.x * W - 60, 0, 120, H);
-        }
-
-        // Grid lines (subtle)
-        ctx.strokeStyle = 'rgba(0, 240, 255, 0.18)';
-        ctx.lineWidth = 2;
-        const cells = 8;
-        for (let i = 0; i <= cells; i++) {
-            const p = (i * W) / cells;
-            ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, H); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(W, p); ctx.stroke();
-        }
-
-        // Horizontal scan streaks (small bright highlights)
-        ctx.fillStyle = 'rgba(255,255,255,0.04)';
-        for (let y = 0; y < H; y += 16) {
-            ctx.fillRect(0, y, W, 1);
-        }
-
-        const floorTex = new THREE.CanvasTexture(c);
-        floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-        floorTex.repeat.set(1, 4);
-        floorTex.colorSpace = THREE.SRGBColorSpace;
-        floorTex.anisotropy = 8;
-
+        const p = this.pbr.floor;
         const floorGeo = new THREE.PlaneGeometry(12, 40);
+        // Second UV set for aoMap
+        floorGeo.setAttribute('uv2', floorGeo.attributes.uv);
         const floorMat = new THREE.MeshStandardMaterial({
-            map: floorTex,
-            color: 0xffffff,
-            roughness: 0.25,
-            metalness: 0.9,
+            map: p.color,
+            normalMap: p.normal,
+            roughnessMap: p.roughness,
+            metalnessMap: p.metalness,
+            aoMap: p.ao,
+            roughness: 1.0,
+            metalness: 1.0,
+            color: 0x8070a0,       // cool purple tint for cyberpunk mood
             emissive: 0x1a0a30,
-            emissiveMap: floorTex,
-            emissiveIntensity: 0.35,
+            emissiveIntensity: 0.25,
+            envMapIntensity: 0.8,
         });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
@@ -296,145 +260,129 @@ class RangeRenderer {
     }
 
     _buildWalls() {
-        // Bake a subtle panel texture on the walls (vertical seams)
-        const wallTex = this._buildWallTexture();
+        const p = this.pbr.wall;
         const wallMat = new THREE.MeshStandardMaterial({
-            map: wallTex,
-            color: 0x2a1a50,
-            roughness: 0.7,
-            metalness: 0.45,
+            map: p.color,
+            normalMap: p.normal,
+            roughnessMap: p.roughness,
+            aoMap: p.ao,
+            roughness: 1.0,
+            metalness: 0.0,
+            color: 0x5a4a8a,       // purple concrete tint
+            emissive: 0x180828,
+            emissiveIntensity: 0.35,
         });
 
-        // Left wall
-        const wallL = new THREE.Mesh(new THREE.PlaneGeometry(40, 5), wallMat.clone());
+        // Shared geometry + material across all three walls
+        const sideGeo = new THREE.PlaneGeometry(40, 5);
+        sideGeo.setAttribute('uv2', sideGeo.attributes.uv);
+        const wallL = new THREE.Mesh(sideGeo, wallMat);
         wallL.rotation.y = Math.PI / 2;
         wallL.position.set(-5.5, 0.7, -12);
         this.scene.add(wallL);
 
-        // Right wall
-        const wallR = new THREE.Mesh(new THREE.PlaneGeometry(40, 5), wallMat.clone());
+        const wallR = new THREE.Mesh(sideGeo, wallMat);
         wallR.rotation.y = -Math.PI / 2;
         wallR.position.set(5.5, 0.7, -12);
         this.scene.add(wallR);
 
-        // Back wall
-        const wallBack = new THREE.Mesh(new THREE.PlaneGeometry(12, 5), wallMat.clone());
+        const backGeo = new THREE.PlaneGeometry(12, 5);
+        backGeo.setAttribute('uv2', backGeo.attributes.uv);
+        const wallBack = new THREE.Mesh(backGeo, wallMat);
         wallBack.position.set(0, 0.7, -30);
         this.scene.add(wallBack);
 
-        // Neon strips — alternating magenta/cyan along each wall
+        // Neon strips — alternating magenta/cyan along each wall.
+        // MeshBasicMaterial: unlit, uniformly bright, no per-light shader cost.
+        // Share geometry across all strips — cheap.
         const stripColors = [0xff00e5, 0x00f0ff];
         const stripZPositions = [-4, -6, -8, -10, -12, -14, -16, -18, -20];
+        const stripGeo = new THREE.BoxGeometry(0.04, 3.2, 0.04);
+        const stripMats = stripColors.map(col => new THREE.MeshBasicMaterial({ color: col, fog: true }));
         stripZPositions.forEach((z, i) => {
-            const col = stripColors[i % 2];
-            const mat = new THREE.MeshStandardMaterial({
-                color: col, emissive: col, emissiveIntensity: 1.5,
-                roughness: 0.3, metalness: 0.5,
-            });
-            const geo = new THREE.BoxGeometry(0.04, 3.2, 0.04);
-
-            const stripL = new THREE.Mesh(geo, mat);
+            const mat = stripMats[i % 2];
+            const stripL = new THREE.Mesh(stripGeo, mat);
             stripL.position.set(-5.3, 0.7, z);
             this.scene.add(stripL);
 
-            const stripR = new THREE.Mesh(geo, mat.clone());
+            const stripR = new THREE.Mesh(stripGeo, mat);
             stripR.position.set(5.3, 0.7, z);
             this.scene.add(stripR);
-
-            // Point light per strip pair (low intensity, short range)
-            const light = new THREE.PointLight(col, 0.3, 5);
-            light.position.set(0, 1, z);
-            this.scene.add(light);
         });
     }
 
     _buildCeiling() {
-        const ceilMat = new THREE.MeshStandardMaterial({ color: 0x0a0818, roughness: 0.9, metalness: 0.1 });
-        const ceil = new THREE.Mesh(new THREE.PlaneGeometry(12, 40), ceilMat);
+        // Clone plank metal textures with a ceiling-tailored repeat
+        const p = this.pbr.plank;
+        const cloneTile = (t) => {
+            const c = t.clone();
+            c.wrapS = c.wrapT = THREE.RepeatWrapping;
+            c.repeat.set(4, 12);
+            c.needsUpdate = true;
+            return c;
+        };
+        const ceilColor = cloneTile(p.color);
+        ceilColor.colorSpace = THREE.SRGBColorSpace;
+        const ceilGeo = new THREE.PlaneGeometry(12, 40);
+        const ceilMat = new THREE.MeshStandardMaterial({
+            map:          ceilColor,
+            normalMap:    cloneTile(p.normal),
+            roughnessMap: cloneTile(p.roughness),
+            metalnessMap: cloneTile(p.metalness),
+            roughness: 1.0,
+            metalness: 1.0,
+            color:     0x707080,
+            emissive:  0x0a0820,
+            emissiveIntensity: 0.25,
+        });
+        const ceil = new THREE.Mesh(ceilGeo, ceilMat);
         ceil.rotation.x = Math.PI / 2;
         ceil.position.set(0, 2.5, -12);
         this.scene.add(ceil);
 
-        // Horizontal neon tubes on ceiling
+        // Horizontal neon tubes — basic material, shared geometry
         const tubePositions = [-6, -10, -14, -18, -22];
         const tubeColors = [0x00f0ff, 0xff00e5, 0x00f0ff, 0xff00e5, 0x00f0ff];
+        const tubeGeo = new THREE.BoxGeometry(9, 0.06, 0.06);
         tubePositions.forEach((z, i) => {
-            const col = tubeColors[i];
-            const mat = new THREE.MeshStandardMaterial({
-                color: col, emissive: col, emissiveIntensity: 1.2,
-                roughness: 0.3, metalness: 0.4,
-            });
-            const tube = new THREE.Mesh(new THREE.BoxGeometry(9, 0.06, 0.06), mat);
+            const mat = new THREE.MeshBasicMaterial({ color: tubeColors[i], fog: true });
+            const tube = new THREE.Mesh(tubeGeo, mat);
             tube.position.set(0, 2.4, z);
             this.scene.add(tube);
-
-            // Downward point light from each tube
-            const light = new THREE.PointLight(col, 0.5, 8);
-            light.position.set(0, 2.0, z);
-            this.scene.add(light);
         });
+
+        // Only two dynamic point lights (front + mid corridor) instead of per-tube
+        const ptLightFront = new THREE.PointLight(0x00f0ff, 0.8, 12);
+        ptLightFront.position.set(0, 2.0, -6);
+        this.scene.add(ptLightFront);
+
+        const ptLightMid = new THREE.PointLight(0xff00e5, 0.7, 14);
+        ptLightMid.position.set(0, 2.0, -14);
+        this.scene.add(ptLightMid);
     }
 
     _buildLaneRails() {
-        // Horizontal rail at top of each lane — targets hang from these
+        // Horizontal rail at top of each lane — targets hang from these (unlit basic)
+        const railMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, fog: true });
         RangeRenderer.LANES.forEach(lane => {
-            const mat = new THREE.MeshStandardMaterial({
-                color: 0x00f0ff, emissive: 0x00f0ff, emissiveIntensity: 0.8,
-                roughness: 0.3, metalness: 0.7,
-            });
-            const rail = new THREE.Mesh(new THREE.BoxGeometry(lane.halfWidth * 2.2, 0.05, 0.05), mat);
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(lane.halfWidth * 2.2, 0.05, 0.05), railMat);
             rail.position.set(0, 1.05, lane.z);
             this.scene.add(rail);
         });
     }
 
-    _buildWallTexture() {
-        const size = 512;
-        const c = document.createElement('canvas');
-        c.width = c.height = size;
-        const ctx = c.getContext('2d');
-        // Base gradient (darker at top, lighter mid)
-        const g = ctx.createLinearGradient(0, 0, 0, size);
-        g.addColorStop(0, '#140a2a');
-        g.addColorStop(0.5, '#24144a');
-        g.addColorStop(1, '#0e0720');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, size, size);
-        // Vertical panel seams
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-        ctx.lineWidth = 2;
-        for (let x = 0; x < size; x += size / 4) {
-            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke();
-        }
-        // Soft horizontal wear band
-        ctx.fillStyle = 'rgba(255,255,255,0.02)';
-        ctx.fillRect(0, size * 0.35, size, size * 0.1);
-        const tex = new THREE.CanvasTexture(c);
-        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-        tex.repeat.set(10, 1);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        return tex;
-    }
-
     _buildFloorWash() {
-        // Thin emissive cyan bars along the wall/floor junction — fake neon wash
-        const washMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-        const washGeoL = new THREE.BoxGeometry(0.08, 0.04, 40);
-        const washL = new THREE.Mesh(washGeoL, washMat);
+        // Thin emissive cyan bars along the wall/floor junction — fake neon wash.
+        // MeshBasicMaterial: unlit, no dynamic lights needed (they were the main GPU cost).
+        const washMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, fog: true });
+        const washGeo = new THREE.BoxGeometry(0.08, 0.04, 40);
+        const washL = new THREE.Mesh(washGeo, washMat);
         washL.position.set(-5.45, -1.78, -12);
         this.scene.add(washL);
 
-        const washR = new THREE.Mesh(washGeoL.clone(), washMat);
+        const washR = new THREE.Mesh(washGeo, washMat);
         washR.position.set(5.45, -1.78, -12);
         this.scene.add(washR);
-
-        // Soft point lights walking down the corridor, low to the floor
-        for (let z = -4; z >= -24; z -= 4) {
-            const col = (z / 4) % 2 === 0 ? 0x00f0ff : 0xff00e5;
-            const light = new THREE.PointLight(col, 0.55, 6);
-            light.position.set(0, -1.5, z);
-            this.scene.add(light);
-        }
     }
 
     _buildGroundHaze() {
@@ -467,17 +415,19 @@ class RangeRenderer {
     }
 
     _buildSpotlights() {
-        // Hanging fixture boxes above each lane with a warm spotlight
-        RangeRenderer.LANES.forEach((lane, i) => {
-            const fixtureMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6, metalness: 0.8 });
-            const fixture = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), fixtureMat);
+        // Hanging fixture boxes above each lane (shared basic material — unlit)
+        const fixtureMat = new THREE.MeshBasicMaterial({ color: 0x333333, fog: true });
+        const fixtureGeo = new THREE.BoxGeometry(0.2, 0.15, 0.2);
+        RangeRenderer.LANES.forEach(lane => {
+            const fixture = new THREE.Mesh(fixtureGeo, fixtureMat);
             fixture.position.set(0, 2.3, lane.z);
             this.scene.add(fixture);
-
-            const spotlight = new THREE.PointLight(0xfff4cc, 1.2, 10);
-            spotlight.position.set(0, 2.1, lane.z);
-            this.scene.add(spotlight);
         });
+
+        // Single warm spotlight above the middle lane — one dynamic light instead of three
+        const spotlight = new THREE.PointLight(0xfff4cc, 1.4, 14);
+        spotlight.position.set(0, 2.1, RangeRenderer.LANES[1].z);
+        this.scene.add(spotlight);
     }
 
     // ─── Private: plank mesh factory ───────────────────────────────────────────
@@ -488,69 +438,85 @@ class RangeRenderer {
         const group = new THREE.Group();
 
         const isHostage = kindCfg.hostage;
-        // Accent color: amber for hostages (warning), cyan for enemies
         const accentHex = isHostage ? 0xffaa22 : 0x00f0ff;
 
-        // ── Backing plate (dark metallic board, same for all kinds) ──
-        const backMat = new THREE.MeshStandardMaterial({
-            color: 0x120a26,
-            roughness: 0.55,
-            metalness: 0.75,
-        });
-        const backGeo = new THREE.BoxGeometry(1.4 * s, 2.0 * s, 0.06);
-        const back = new THREE.Mesh(backGeo, backMat);
+        // ── Shared materials / geometries (created once, reused across planks) ──
+        if (!this._plankBackMat) {
+            const p = this.pbr.plank;
+            this._plankBackMat = new THREE.MeshStandardMaterial({
+                map: p.color,
+                normalMap: p.normal,
+                roughnessMap: p.roughness,
+                metalnessMap: p.metalness,
+                roughness: 1.0,
+                metalness: 1.0,
+                color: 0xb0b0c0,
+                envMapIntensity: 1.0,
+            });
+            this._rivetGeo = new THREE.SphereGeometry(0.035, 10, 8);
+            this._rivetMat = new THREE.MeshStandardMaterial({
+                color: 0x1a1a22, metalness: 1.0, roughness: 0.25,
+            });
+        }
+
+        // ── Main plaque (thick metal box — PBR Metal046B) ──
+        const W = 1.4 * s, H = 2.0 * s, D = 0.1;
+        const back = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), this._plankBackMat);
         group.add(back);
 
-        // ── Image plane (fills most of the backing) ──
+        // ── Image plane — sits directly on the metal (transparent webp lets metal show through) ──
         const texKey = kindCfg.texKey;
         const tex = this.textures[texKey] || null;
         const imgMat = new THREE.MeshBasicMaterial({
             map: tex,
+            transparent: true,
             toneMapped: false,
             side: THREE.FrontSide,
         });
-        const imgGeo = new THREE.PlaneGeometry(1.28 * s, 1.72 * s);
-        const img = new THREE.Mesh(imgGeo, imgMat);
-        img.position.set(0, -0.05 * s, 0.032);
+        const imgW = 1.0 * s, imgH = 1.35 * s;
+        const imgCy = -0.12 * s;
+        const img = new THREE.Mesh(new THREE.PlaneGeometry(imgW, imgH), imgMat);
+        img.position.set(0, imgCy, D / 2 + 0.003);
         group.add(img);
 
-        // ── Edge strips (emissive neon border on all 4 sides) ──
-        const stripMat = new THREE.MeshBasicMaterial({ color: accentHex });
-        const w = 1.4 * s, h = 2.0 * s, t = 0.035;
-        const stripTop    = new THREE.Mesh(new THREE.BoxGeometry(w, t, 0.04), stripMat);
-        const stripBot    = new THREE.Mesh(new THREE.BoxGeometry(w, t, 0.04), stripMat);
-        const stripLeft   = new THREE.Mesh(new THREE.BoxGeometry(t, h, 0.04), stripMat);
-        const stripRight  = new THREE.Mesh(new THREE.BoxGeometry(t, h, 0.04), stripMat);
-        stripTop.position.set(0,  h / 2 - t / 2, 0.04);
-        stripBot.position.set(0, -h / 2 + t / 2, 0.04);
-        stripLeft.position.set(-w / 2 + t / 2, 0, 0.04);
-        stripRight.position.set(w / 2 - t / 2, 0, 0.04);
-        group.add(stripTop, stripBot, stripLeft, stripRight);
+        // ── LED trim frame inset around the image ──
+        const ledMat = new THREE.MeshBasicMaterial({ color: accentHex });
+        const ledT  = 0.018;
+        const pad   = 0.05 * s;
+        const lw    = imgW + pad * 2;
+        const lh    = imgH + pad * 2;
+        const ledZ  = D / 2 + 0.012;
+        const ledTop = new THREE.Mesh(new THREE.BoxGeometry(lw, ledT, 0.02), ledMat);
+        const ledBot = new THREE.Mesh(new THREE.BoxGeometry(lw, ledT, 0.02), ledMat);
+        const ledL   = new THREE.Mesh(new THREE.BoxGeometry(ledT, lh, 0.02), ledMat);
+        const ledR   = new THREE.Mesh(new THREE.BoxGeometry(ledT, lh, 0.02), ledMat);
+        ledTop.position.set(0, imgCy + lh / 2, ledZ);
+        ledBot.position.set(0, imgCy - lh / 2, ledZ);
+        ledL.position.set(-lw / 2, imgCy, ledZ);
+        ledR.position.set( lw / 2, imgCy, ledZ);
+        group.add(ledTop, ledBot, ledL, ledR);
 
-        // ── Banner label at top ──
+        // ── Banner label at the top of the plaque ──
         const bannerText = isHostage ? '⚠ CIVILIAN' : 'CYBER TARGET';
-        const bannerTex = this._getBannerTexture(bannerText, accentHex);
-        const bannerMat = new THREE.MeshBasicMaterial({
-            map: bannerTex,
-            transparent: true,
-            toneMapped: false,
+        const bannerTex  = this._getBannerTexture(bannerText, accentHex);
+        const bannerMat  = new THREE.MeshBasicMaterial({
+            map: bannerTex, transparent: true, toneMapped: false,
         });
-        const bannerGeo = new THREE.PlaneGeometry(1.1 * s, 0.22 * s);
-        const banner = new THREE.Mesh(bannerGeo, bannerMat);
-        banner.position.set(0, h / 2 - 0.2 * s, 0.05);
+        const banner = new THREE.Mesh(new THREE.PlaneGeometry(1.15 * s, 0.26 * s), bannerMat);
+        banner.position.set(0, H / 2 - 0.20 * s, D / 2 + 0.005);
         group.add(banner);
 
-        // ── Faint accent glow light in front of plank (only for hostages, to sell warning) ──
-        if (isHostage) {
-            const warnLight = new THREE.PointLight(accentHex, 0.4, 3);
-            warnLight.position.set(0, 0, 0.3);
-            group.add(warnLight);
-        }
+        // ── Corner rivets (4 small dark metal spheres) ──
+        const rx = W / 2 - 0.08 * s;
+        const ry = H / 2 - 0.08 * s;
+        [[-rx, ry], [rx, ry], [-rx, -ry], [rx, -ry]].forEach(([x, y]) => {
+            const riv = new THREE.Mesh(this._rivetGeo, this._rivetMat);
+            riv.position.set(x, y, D / 2 + 0.02);
+            group.add(riv);
+        });
 
-        // Store references so we can swap texture in later if async
         group.userData.imgMesh = img;
-        group.userData.texKey = texKey;
-
+        group.userData.texKey  = texKey;
         return group;
     }
 
@@ -618,6 +584,25 @@ class RangeRenderer {
     }
 
     // ─── Private: texture loading ───────────────────────────────────────────────
+
+    _loadPBRSet(basePath, repeat, opts) {
+        const loader = new THREE.TextureLoader();
+        const setup = (tex, srgb) => {
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(repeat[0], repeat[1]);
+            tex.anisotropy = 8;
+            if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
+            return tex;
+        };
+        const out = {
+            color:     setup(loader.load(basePath + 'color.jpg'), true),
+            normal:    setup(loader.load(basePath + 'normal.jpg'), false),
+            roughness: setup(loader.load(basePath + 'roughness.jpg'), false),
+        };
+        if (opts.metal) out.metalness = setup(loader.load(basePath + 'metalness.jpg'), false);
+        if (opts.ao)    out.ao        = setup(loader.load(basePath + 'ao.jpg'), false);
+        return out;
+    }
 
     _loadTextures() {
         const loader = new THREE.TextureLoader();
