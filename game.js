@@ -283,7 +283,30 @@ class Game extends EventEmitter {
         const [minSpd, maxSpd] = kindCfg.speedRange;
         const speed = minSpd + Math.random() * (maxSpd - minSpd);
         const vx    = speed * (Math.random() < 0.5 ? 1 : -1);
-        const worldX = (Math.random() * 2 - 1) * lane.halfWidth * 0.8; // start somewhere in the lane
+
+        // Pick worldX with minimum spacing from other targets in this lane
+        const MIN_SPACING = 1.8; // world units
+        const MAX_TRIES = 8;
+        let worldX = 0;
+        let placed = false;
+        for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
+            const candidate = (Math.random() * 2 - 1) * lane.halfWidth * 0.85;
+            let clash = false;
+            for (const other of this.targets) {
+                if (other.lane !== laneIdx) continue;
+                if (other.state === 'dead') continue;
+                if (Math.abs(other.worldX - candidate) < MIN_SPACING) {
+                    clash = true;
+                    break;
+                }
+            }
+            if (!clash) {
+                worldX = candidate;
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) return; // no room this cycle
 
         const target = {
             id:        this._nextTargetId++,
