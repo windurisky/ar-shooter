@@ -36,6 +36,8 @@
     };
 
     const gunCanvasEl = document.getElementById('gun-canvas');
+    const cameraPreviewEl = document.getElementById('camera-preview');
+    const handOverlayEl = document.getElementById('hand-overlay');
     let tracker = null;
     let game = null;
     let gunRenderer = null;
@@ -91,6 +93,8 @@
 
             startScreen.classList.add('hidden');
             hud.classList.remove('hidden');
+            attachCameraPreview();
+            startHandOverlayLoop();
             game.start();
             updateAmmoUI('Left', game.maxAmmo, game.maxAmmo);
             updateAmmoUI('Right', game.maxAmmo, game.maxAmmo);
@@ -219,6 +223,81 @@
             finalCombo.textContent = 'x' + stats.maxCombo;
             timerValue.style.color = '';
         });
+    }
+
+    // ===== Camera preview + hand skeleton overlay =====
+    // MediaPipe hand connections (21 landmarks → bone pairs)
+    const HAND_CONNECTIONS = [
+        [0,1],[1,2],[2,3],[3,4],        // thumb
+        [0,5],[5,6],[6,7],[7,8],        // index
+        [5,9],[9,10],[10,11],[11,12],   // middle
+        [9,13],[13,14],[14,15],[15,16], // ring
+        [13,17],[17,18],[18,19],[19,20],// pinky
+        [0,17],                         // palm base
+    ];
+    // Match gun accent colors: MediaPipe "Left" → magenta, "Right" → cyan
+    const HAND_COLORS = { Left: '#ff00e5', Right: '#00f0ff' };
+
+    function attachCameraPreview() {
+        if (!cameraPreviewEl || !videoEl.srcObject) return;
+        cameraPreviewEl.srcObject = videoEl.srcObject;
+    }
+
+    function startHandOverlayLoop() {
+        if (!handOverlayEl) return;
+        const ctx = handOverlayEl.getContext('2d');
+
+        function resize() {
+            const rect = handOverlayEl.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            handOverlayEl.width = rect.width * dpr;
+            handOverlayEl.height = rect.height * dpr;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        function draw() {
+            const w = handOverlayEl.clientWidth;
+            const h = handOverlayEl.clientHeight;
+            ctx.clearRect(0, 0, w, h);
+
+            const results = tracker && tracker.lastResults;
+            if (results && results.multiHandLandmarks) {
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const lm = results.multiHandLandmarks[i];
+                    const label = results.multiHandedness[i].label;
+                    const color = HAND_COLORS[label] || '#ffffff';
+
+                    ctx.strokeStyle = color;
+                    ctx.fillStyle = color;
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = 8;
+                    ctx.lineWidth = 2.5;
+                    ctx.lineCap = 'round';
+
+                    // Bones
+                    ctx.beginPath();
+                    for (const [a, b] of HAND_CONNECTIONS) {
+                        const p1 = lm[a], p2 = lm[b];
+                        ctx.moveTo(p1.x * w, p1.y * h);
+                        ctx.lineTo(p2.x * w, p2.y * h);
+                    }
+                    ctx.stroke();
+
+                    // Joints
+                    for (let j = 0; j < lm.length; j++) {
+                        const p = lm[j];
+                        ctx.beginPath();
+                        ctx.arc(p.x * w, p.y * h, 2.8, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.shadowBlur = 0;
+                }
+            }
+            requestAnimationFrame(draw);
+        }
+        draw();
     }
 
     function updateAmmoUI(handId, current, max) {
